@@ -1,0 +1,34 @@
+# Java Maven compilation and binaries
+**/target/
+*.class
+
+# Maven Wrapper binaries
+**/.mvn/wrapper/maven-wrapper.jar
+
+# Automatically generated documentation
+**/HELP.md
+
+# IDE development environments
+**/.idea/
+**/*.iws
+**/*.iml
+**/*.ipr
+**/.vscode/
+**/.apt_generated
+**/.classpath
+**/.factorypath
+**/.project
+**/.settings/
+**/.springBeans
+**/.sts4-cache
+.DS_Store
+
+# Execution logs and JVM dumps
+*.log
+hs_err_pid*
+replay_pid*
+
+# Telemetry, profiling, and load tests (K6, JFR, GC)
+load-tests/results/
+*.csv
+*.jfr
