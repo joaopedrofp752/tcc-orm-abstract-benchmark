@@ -1,34 +1,63 @@
-# Java Maven compilation and binaries
-**/target/
-*.class
+# Operating System & Terminal Artifacts
 
-# Maven Wrapper binaries
-**/.mvn/wrapper/maven-wrapper.jar
-
-# Automatically generated documentation
-**/HELP.md
-
-# IDE development environments
-**/.idea/
-**/*.iws
-**/*.iml
-**/*.ipr
-**/.vscode/
-**/.apt_generated
-**/.classpath
-**/.factorypath
-**/.project
-**/.settings/
-**/.springBeans
-**/.sts4-cache
 .DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+.directory
 
-# Execution logs and JVM dumps
+# Process Lifecycle, System Logs, and JVM Crashes
+
+.backend.pid
+backend.log
 *.log
 hs_err_pid*
 replay_pid*
 
-# Telemetry, profiling, and load tests (K6, JFR, GC)
+# IDEs and Text Editors (JetBrains, VS Code, Eclipse)
+
+**/.idea/
+**/*.iml
+**/*.iws
+**/*.ipr
+**/.vscode/
+**/.classpath
+**/.project
+**/.settings/
+**/.factorypath
+**/.apt_generated
+**/.springBeans
+**/.sts4-cache
+
+# Java & Maven Artifacts
+
+**/target/
+*.class
+**/.mvn/wrapper/maven-wrapper.jar
+**/HELP.md
+
+# Python Virtual Environments, Bytecode, and Notebooks
+
+**/venv/
+**/.venv/
+**/env/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Infrastructure, Containers, and Local Data
+
+.env
+.env.local
+**/pgdata/
+**/data/pgdata/
+
+# Telemetry, Profiling, and Raw Benchmark Data
+
 load-tests/results/
-*.csv
+data-analysis/raw-data/
 *.jfr
+*.csv
