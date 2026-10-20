@@ -1,0 +1,13 @@
+# Auto-detect text files and normalize line endings
+
+* text=auto
+
+# Linux / POSIX Shell Scripts and Wrappers (Strict LF)
+
+*.sh text eol=lf
+**/mvnw text eol=lf
+
+# Windows Command Scripts (Strict CRLF)
+
+*.cmd text eol=crlf
+*.bat text eol=crlf
