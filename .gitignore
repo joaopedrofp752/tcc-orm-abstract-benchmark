@@ -1,10 +1,3 @@
-# Java Maven compilation and binaries
-**/target/
-*.class
-
-# Maven Wrapper binaries
-**/.mvn/wrapper/maven-wrapper.jar
-
 # Operating System & Terminal Artifacts
 
 .DS_Store
