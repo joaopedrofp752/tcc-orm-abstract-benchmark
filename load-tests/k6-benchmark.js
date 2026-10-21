@@ -2,21 +2,20 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 
 const limit = __ENV.LIMIT || 200;
-const stageTime = __ENV.STAGE_TIME || '45s';
-const targetEndpoint = __ENV.TARGET_ENDPOINT || 'payloads';
+const stageTime = __ENV.STAGE_TIME || '15s';
 
 export const options = {
+    // Stepped load progression in 15s intervals reaching peak 55 VUs (90s total)
     stages: [
         { duration: stageTime, target: 5 },
-        { duration: stageTime, target: 8 },
         { duration: stageTime, target: 13 },
         { duration: stageTime, target: 21 },
         { duration: stageTime, target: 34 },
         { duration: stageTime, target: 55 },
-        { duration: '30s', target: 0 },
+        { duration: stageTime, target: 0 },
     ],
-    // Prevents k6 from dropping metric points when disk I/O spikes during CSV dumps
-    discardResponseBodies: false,
+    // Prevent k6 runtime memory bloating during continuous metric dumps
+    discardResponseBodies: true,
 };
 
 export default function () {
@@ -35,5 +34,6 @@ export default function () {
         'response time < 2000ms': (r) => r.timings.duration < 2000,
     });
 
-    sleep(1);
+    // 100ms pacing between requests to sustain high concurrency pressure
+    sleep(0.1);
 }
