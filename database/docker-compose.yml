@@ -1,8 +1,13 @@
 services:
   db:
-    image: postgres:17-alpine
     container_name: tcc_postgres
-    restart: always
+    image: postgres:17-alpine
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1024M
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -10,4 +15,8 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./db-init:/docker-entrypoint-initdb.d
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
