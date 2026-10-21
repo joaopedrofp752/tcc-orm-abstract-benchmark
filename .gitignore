@@ -11,6 +11,7 @@ Thumbs.db
 
 .backend.pid
 backend.log
+load-tests.log
 *.log
 hs_err_pid*
 replay_pid*
@@ -57,7 +58,6 @@ replay_pid*
 
 # Telemetry, Profiling, and Raw Benchmark Data
 
-load-tests/results/
 data-analysis/raw-data/
 *.jfr
 *.csv
