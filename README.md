@@ -96,4 +96,4 @@ Once all benchmark iterations are completed across the branches, run the unified
 The script will automatically parse the raw metrics, correlate JFR runtime events with k6 latency percentiles, and output:
 
 * **Consolidated Dataset:** `data-analysis/processed-data/dataset_final.csv`
-* **Generated Figures:** `data-analysis/figures/` (latency percentiles, throughput, and JVM telemetry charts)
+* **Generated Figures:** `data-analysis/figures/` (per-strategy stability charts and cross-strategy comparative plots)
