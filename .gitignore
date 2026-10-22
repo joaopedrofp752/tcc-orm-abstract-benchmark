@@ -56,8 +56,12 @@ replay_pid*
 **/pgdata/
 **/data/pgdata/
 
-# Telemetry, Profiling, and Raw Benchmark Data
+# Telemetry, Profiling, and Benchmark Artifacts
 
 data-analysis/raw-data/
+data-analysis/processed-data/
+data-analysis/figures/
+data-analysis/output/
 *.jfr
 *.csv
+*.png
