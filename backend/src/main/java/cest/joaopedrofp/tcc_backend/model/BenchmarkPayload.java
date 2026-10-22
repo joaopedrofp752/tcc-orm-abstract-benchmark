@@ -1,29 +1,22 @@
 package cest.joaopedrofp.tcc_backend.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-
-@Entity
-@Table(name = "benchmark_payload")
 public class BenchmarkPayload {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(name = "payload_data", nullable = false)
-    private String payloadData;
+    private String name;
+    private String description;
+    private Double value;
+    private Boolean active;
 
     public BenchmarkPayload() {
     }
 
-    public BenchmarkPayload(Long id, String payloadData) {
+    public BenchmarkPayload(Long id, String name, String description, Double value, Boolean active) {
         this.id = id;
-        this.payloadData = payloadData;
+        this.name = name;
+        this.description = description;
+        this.value = value;
+        this.active = active;
     }
 
     public Long getId() {
@@ -34,11 +27,35 @@ public class BenchmarkPayload {
         this.id = id;
     }
 
-    public String getPayloadData() {
-        return payloadData;
+    public String getName() {
+        return name;
     }
 
-    public void setPayloadData(String payloadData) {
-        this.payloadData = payloadData;
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public Double getValue() {
+        return value;
+    }
+
+    public void setValue(Double value) {
+        this.value = value;
+    }
+
+    public Boolean getActive() {
+        return active;
+    }
+
+    public void setActive(Boolean active) {
+        this.active = active;
     }
 }
