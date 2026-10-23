@@ -1,20 +1,44 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 
 const limit = __ENV.LIMIT || 200;
-const stageTime = __ENV.STAGE_TIME || '15s';
+const scenarioName = __ENV.SCENARIO || 'nominal';
+const isWarmup = __ENV.WARMUP === 'true';
+
+const SCENARIOS = {
+    nominal: {
+        rate: 300,
+        preAllocatedVUs: 30,
+        maxVUs: 90,
+        duration: '90s',
+    },
+    saturation: {
+        rate: 1200,
+        preAllocatedVUs: 120,
+        maxVUs: 360,
+        duration: '90s',
+    },
+    warmup: {
+        rate: 100,
+        preAllocatedVUs: 10,
+        maxVUs: 30,
+        duration: '60s',
+    },
+};
+
+const active = isWarmup ? SCENARIOS.warmup : (SCENARIOS[scenarioName] || SCENARIOS.nominal);
 
 export const options = {
-    // Stepped load progression in 15s intervals reaching peak 55 VUs (90s total)
-    stages: [
-        { duration: stageTime, target: 5 },
-        { duration: stageTime, target: 13 },
-        { duration: stageTime, target: 21 },
-        { duration: stageTime, target: 34 },
-        { duration: stageTime, target: 55 },
-        { duration: stageTime, target: 0 },
-    ],
-    // Prevent k6 runtime memory bloating during continuous metric dumps
+    scenarios: {
+        benchmark_execution: {
+            executor: 'constant-arrival-rate',
+            rate: active.rate,
+            timeUnit: '1s',
+            duration: active.duration,
+            preAllocatedVUs: active.preAllocatedVUs,
+            maxVUs: active.maxVUs,
+        },
+    },
     discardResponseBodies: true,
 };
 
@@ -33,7 +57,4 @@ export default function () {
         'status is 200': (r) => r.status === 200,
         'response time < 2000ms': (r) => r.timings.duration < 2000,
     });
-
-    // 100ms pacing between requests to sustain high concurrency pressure
-    sleep(0.1);
 }

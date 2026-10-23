@@ -9,9 +9,7 @@ Thumbs.db
 
 # Process Lifecycle, System Logs, and JVM Crashes
 
-.backend.pid
-backend.log
-load-tests.log
+.*.pid
 *.log
 hs_err_pid*
 replay_pid*
