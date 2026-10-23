@@ -41,6 +41,7 @@ Ensure the following tools are installed and accessible in your `$PATH`:
 ├── down-lab.sh         # Shuts down JVM runtime and tears down database containers
 ├── run-battery.sh      # Executes warm-up and 10 benchmark iterations (--nominal | --saturation)
 ├── run-analysis.sh     # Resets derived data and runs the 4-stage Python analysis pipeline
+├── run-all.sh          # Master orchestrator managing branch switching, runs, cooldowns, and analysis
 ├── backend.log         # Cumulative JVM startup, health checks, and application logs [ignored]
 ├── database.log        # Cumulative PostgreSQL container logs [ignored]
 ├── load-tests.log      # Cumulative k6 execution and JFR profiling logs [ignored]
@@ -67,9 +68,22 @@ deactivate
 
 Each persistence strategy is isolated on its own Git branch: `hibernate`, `hibernate-dto`, and `jdbc`.
 
-Execute both workload scenarios (`--nominal` and `--saturation`) sequentially for each branch:
+### Option A: Fully Automated Execution (Recommended)
 
-### 1. Hibernate (Managed Entities)
+Run the master orchestrator from any clean branch (e.g., `main`). It automatically manages Git checkouts, boots and shuts down the test environment, runs warm-ups and dual-scenario batteries, enforces a 3-minute inter-strategy hardware cooldown, and triggers the final data analysis:
+
+```bash
+chmod +x run-all.sh
+./run-all.sh
+```
+
+---
+
+### Option B: Manual Step-by-Step Execution
+
+Alternatively, execute both workload scenarios (`--nominal` and `--saturation`) sequentially for each branch:
+
+#### 1. Hibernate (Managed Entities)
 ```bash
 git switch hibernate
 ./up-lab.sh
@@ -80,7 +94,7 @@ git switch hibernate
 
 *(Allow 2–3 minutes for thermal cooldown before proceeding)*
 
-### 2. Hibernate DTO (Projections)
+#### 2. Hibernate DTO (Projections)
 ```bash
 git switch hibernate-dto
 ./up-lab.sh
@@ -91,7 +105,7 @@ git switch hibernate-dto
 
 *(Allow 2–3 minutes for thermal cooldown)*
 
-### 3. Native JDBC
+#### 3. Native JDBC
 ```bash
 git switch jdbc
 ./up-lab.sh
@@ -104,7 +118,7 @@ git switch jdbc
 
 ## Data Analysis
 
-Once all benchmark iterations are completed across the three branches (totaling 60 experimental runs), execute the processing pipeline from any branch:
+If executed manually via Option B, run the processing pipeline from any branch once all 60 benchmark iterations are completed:
 
 ```bash
 ./run-analysis.sh
