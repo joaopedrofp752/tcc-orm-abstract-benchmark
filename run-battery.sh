@@ -6,12 +6,36 @@ PID_FILE="$ROOT_DIR/.backend.pid"
 LOG_FILE="$ROOT_DIR/load-tests.log"
 K6_SCRIPT="$ROOT_DIR/load-tests/k6-benchmark.js"
 
-# Resolve target strategy (argument or current active git branch)
-TARGET="${1:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}"
+SCENARIO="nominal"
+TARGET=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --nominal|nominal)
+            SCENARIO="nominal"
+            ;;
+        --saturation|saturation)
+            SCENARIO="saturation"
+            ;;
+        hibernate|hibernate-dto|jdbc)
+            TARGET="$arg"
+            ;;
+        *)
+            echo "Opção desconhecida: $arg"
+            echo "Uso: $0 [--nominal|--saturation] [hibernate|hibernate-dto|jdbc]"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$TARGET" ]]; then
+    TARGET="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+fi
 
 if [[ "$TARGET" != "hibernate" && "$TARGET" != "hibernate-dto" && "$TARGET" != "jdbc" ]]; then
-    echo "Usage: $0 <hibernate|hibernate-dto|jdbc>"
-    echo "Or execute directly from within one of the study branches."
+    echo "Erro: Alvo de teste inválido [$TARGET]."
+    echo "Uso: $0 [--nominal|--saturation] [hibernate|hibernate-dto|jdbc]"
+    echo "Ou execute diretamente de dentro de uma das branches do estudo."
     exit 1
 fi
 
@@ -20,11 +44,11 @@ TEST_DURATION="${TEST_DURATION:-90}"
 COOLDOWN_TIME="${COOLDOWN_TIME:-30}"
 WARMUP_DURATION=60
 
-K6_RESULTS_DIR="$ROOT_DIR/data-analysis/raw-data/$TARGET/k6"
-JFR_RESULTS_DIR="$ROOT_DIR/data-analysis/raw-data/$TARGET/jfr"
+K6_RESULTS_DIR="$ROOT_DIR/data-analysis/raw-data/$SCENARIO/$TARGET/k6"
+JFR_RESULTS_DIR="$ROOT_DIR/data-analysis/raw-data/$SCENARIO/$TARGET/jfr"
 
-# --- 1. Pre-flight Validation ---
-echo "Validating lab state for target [$TARGET]..."
+# 1. Pre-flight Validation & Purge
+echo "Validating lab state for target [$TARGET] under scenario [$SCENARIO]..."
 
 if [[ ! -f "$PID_FILE" ]]; then
     echo "  ! Error: '$PID_FILE' not found. Run ./up-lab.sh first."
@@ -52,18 +76,19 @@ for cmd in k6 jcmd; do
 done
 echo "  - Telemetry tooling confirmed (k6, jcmd)"
 
+echo "  - Resetting raw telemetry storage for [$SCENARIO | $TARGET]..."
+rm -rf "$K6_RESULTS_DIR" "$JFR_RESULTS_DIR"
 mkdir -p "$K6_RESULTS_DIR" "$JFR_RESULTS_DIR"
 
-# Initialize fresh log file for this battery execution
-echo "Benchmark Battery Initialized [$(date +'%Y-%m-%d %H:%M:%S')] | Target: $TARGET ===" > "$LOG_FILE"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Benchmark Battery Initialized | Target: $TARGET | Scenario: $SCENARIO" >> "$LOG_FILE"
 
-# --- 2. JIT & Connection Warm-up ---
+# 2. JIT & Connection Warm-up
 echo ""
-echo "Executing JVM warm-up phase (30s)..."
+echo "Executing JVM warm-up phase (60s)..."
 echo "  - Priming JIT C2 compiler and HikariCP connection pool..."
-echo "--- Warm-up Phase ---" >> "$LOG_FILE"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Warm-up Phase Started | Target: $TARGET | Scenario: $SCENARIO" >> "$LOG_FILE"
 
-k6 run --duration "${WARMUP_DURATION}s" --vus 5 "$K6_SCRIPT" >> "$LOG_FILE" 2>&1 &
+WARMUP=true k6 run "$K6_SCRIPT" >> "$LOG_FILE" 2>&1 &
 WARMUP_PID=$!
 
 for ((sec=WARMUP_DURATION; sec>0; sec--)); do
@@ -77,9 +102,9 @@ wait "$WARMUP_PID" 2>/dev/null || true
 printf "\r  - Warm-up completed. Settling GC for 10s...                \n"
 sleep 10
 
-# --- 3. Experimental Battery Execution ---
+# 3. Experimental Battery Execution
 echo ""
-echo "Starting benchmark battery [$TARGET] | Runs: $TOTAL_RUNS"
+echo "Starting benchmark battery [$TARGET | $SCENARIO] | Runs: $TOTAL_RUNS"
 
 for i in $(seq 1 "$TOTAL_RUNS"); do
     RUN_NUM=$(printf "%02d" "$i")
@@ -88,27 +113,24 @@ for i in $(seq 1 "$TOTAL_RUNS"); do
 
     echo ""
     echo "[Run $RUN_NUM/$TOTAL_RUNS] Recording telemetry..."
-    echo "--- Run $RUN_NUM/$TOTAL_RUNS [$TARGET] ---" >> "$LOG_FILE"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] Run $RUN_NUM/$TOTAL_RUNS | Target: $TARGET | Scenario: $SCENARIO" >> "$LOG_FILE"
 
-    # Start Java Flight Recorder profiling on the active JVM
     jcmd "$BACKEND_PID" JFR.start name="run_${RUN_NUM}" settings=profile filename="$JFR_FILE" >> "$LOG_FILE" 2>&1
-    echo "  - JFR profiling started -> data-analysis/raw-data/$TARGET/jfr/run_${RUN_NUM}.jfr"
+    echo "  - JFR profiling started -> data-analysis/raw-data/$SCENARIO/$TARGET/jfr/run_${RUN_NUM}.jfr"
 
-    # Inject load in background and stream logs into load-tests.log
-    k6 run --out "csv=$CSV_FILE" "$K6_SCRIPT" >> "$LOG_FILE" 2>&1 &
+    SCENARIO="$SCENARIO" k6 run --out "csv=$CSV_FILE" "$K6_SCRIPT" >> "$LOG_FILE" 2>&1 &
     K6_PID=$!
 
     for ((sec=TEST_DURATION; sec>0; sec--)); do
         if ! kill -0 "$K6_PID" 2>/dev/null; then
             break
         fi
-        printf "\r  - Injecting load via k6: %2ds remaining..." "$sec"
+        printf "\r  - Injecting load ($SCENARIO): %2ds remaining..." "$sec"
         sleep 1
     done
     wait "$K6_PID"
-    printf "\r  - Load test completed -> data-analysis/raw-data/$TARGET/k6/run_${RUN_NUM}.csv\n"
+    printf "\r  - Load test completed -> data-analysis/raw-data/$SCENARIO/$TARGET/k6/run_${RUN_NUM}.csv\n"
 
-    # Stop JFR session and flush binary buffer
     jcmd "$BACKEND_PID" JFR.stop name="run_${RUN_NUM}" >> "$LOG_FILE" 2>&1
     echo "  - JFR profiling stopped and flushed"
 
@@ -122,7 +144,7 @@ for i in $(seq 1 "$TOTAL_RUNS"); do
 done
 
 echo ""
-echo "Battery completed successfully for [$TARGET]."
+echo "Battery completed successfully for [$TARGET] under [$SCENARIO]."
 echo "  - k6 Latency CSVs : $K6_RESULTS_DIR/"
 echo "  - JFR Recordings  : $JFR_RESULTS_DIR/"
 echo "  - Full Execution Log: $LOG_FILE"
