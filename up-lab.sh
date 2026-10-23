@@ -4,9 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$ROOT_DIR/database/docker-compose.yml"
 PID_FILE="$ROOT_DIR/.backend.pid"
-LOG_FILE="$ROOT_DIR/backend.log"
+DB_PID_FILE="$ROOT_DIR/.database_log.pid"
 
-# --- 1. Environment Pre-flight ---
+BACKEND_LOG="$ROOT_DIR/backend.log"
+DB_LOG="$ROOT_DIR/database.log"
+
+# 1. Environment Pre-flight
 echo "Checking environment..."
 
 if ! docker info > /dev/null 2>&1; then
@@ -31,11 +34,16 @@ if ss -tuln | grep -q ':8080 '; then
 fi
 echo "  - Ports 5432 and 8080 are free"
 
-# --- 2. Database Initialization ---
+# 2. Database Initialization & Telemetry
 echo ""
 echo "Initializing PostgreSQL..."
 echo "  - Starting container via Docker Compose..."
 docker compose -f "$COMPOSE_FILE" up -d > /dev/null 2>&1
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] PostgreSQL Container Initialized" >> "$DB_LOG"
+docker compose -f "$COMPOSE_FILE" logs -f db >> "$DB_LOG" 2>&1 &
+echo $! > "$DB_PID_FILE"
+echo "  - Database logging attached -> $(basename "$DB_LOG")"
 
 DB_TIMEOUT=90
 DB_ELAPSED=0
@@ -47,17 +55,16 @@ until docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U postgres > /dev
     if [[ $DB_ELAPSED -ge $DB_TIMEOUT ]]; then
         echo ""
         echo "  ! Error: Database readiness timed out after ${DB_TIMEOUT}s."
-        echo "  ! Hint: Run 'docker compose -f $COMPOSE_FILE logs' to inspect."
+        echo "  ! Hint: Check $(basename "$DB_LOG") for details."
         exit 1
     fi
 done
 printf "\r  - PostgreSQL is accepting connections (ready in %ds)             \n" "$DB_ELAPSED"
 
-# --- 3. Backend Build ---
+# 3. Backend Build
 echo ""
 echo "Compiling backend..."
 echo "  - Running Maven clean package..."
-# Run Maven inside an isolated subshell to preserve working directory
 if ! (cd "$ROOT_DIR/backend" && ./mvnw clean package -DskipTests -q); then
     echo "  ! Error: Maven build failed."
     exit 1
@@ -70,14 +77,15 @@ if [[ -z "$JAR_FILE" ]]; then
 fi
 echo "  - Artifact ready: $(basename "$JAR_FILE")"
 
-# --- 4. JVM Startup & Health Check ---
+# 4. JVM Startup & Health Check
 echo ""
 echo "Launching JVM..."
 echo "  - Configuration: -Xms1g -Xmx1g -XX:+UseG1GC"
-java -XX:+UseG1GC -Xms1g -Xmx1g -jar "$JAR_FILE" > "$LOG_FILE" 2>&1 &
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] JVM Backend Initialized" >> "$BACKEND_LOG"
+java -XX:+UseG1GC -Xms1g -Xmx1g -jar "$JAR_FILE" >> "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > "$PID_FILE"
-echo "  - Process started (PID $BACKEND_PID)"
+echo "  - Process started (PID $BACKEND_PID) -> $(basename "$BACKEND_LOG")"
 
 APP_TIMEOUT=60
 APP_ELAPSED=0
@@ -86,7 +94,7 @@ until curl -s -f http://localhost:8080/actuator/health | grep -q '"status":"UP"'
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
         echo ""
         echo "  ! Error: Backend process exited prematurely."
-        echo "  ! Hint: Check backend.log for details."
+        echo "  ! Hint: Check $(basename "$BACKEND_LOG") for details."
         exit 1
     fi
 
@@ -96,7 +104,7 @@ until curl -s -f http://localhost:8080/actuator/health | grep -q '"status":"UP"'
     if [[ $APP_ELAPSED -ge $APP_TIMEOUT ]]; then
         echo ""
         echo "  ! Error: Health check timed out after ${APP_TIMEOUT}s."
-        echo "  ! Hint: Check backend.log for details."
+        echo "  ! Hint: Check $(basename "$BACKEND_LOG") for details."
         exit 1
     fi
 done

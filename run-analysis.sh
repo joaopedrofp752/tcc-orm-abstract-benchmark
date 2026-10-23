@@ -5,8 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANALYSIS_DIR="$ROOT_DIR/data-analysis"
 SCRIPTS_DIR="$ANALYSIS_DIR/scripts"
 VENV_ACTIVATE="$ANALYSIS_DIR/venv/bin/activate"
+ANALYSIS_LOG="$ROOT_DIR/data-analysis.log"
 
-# Enforce active shell environment or load local venv
+PROCESSED_DIR="$ANALYSIS_DIR/processed-data"
+FIGURES_DIR="$ANALYSIS_DIR/figures"
+
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     if [[ -f "$VENV_ACTIVATE" ]]; then
         source "$VENV_ACTIVATE"
@@ -17,7 +20,14 @@ if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     fi
 fi
 
+exec > >(tee -a "$ANALYSIS_LOG") 2>&1
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Data Analysis Pipeline Initialized"
 echo "Running data analysis pipeline..."
+
+echo "  - Resetting processed-data and figures directories..."
+rm -rf "$PROCESSED_DIR" "$FIGURES_DIR"
+mkdir -p "$PROCESSED_DIR" "$FIGURES_DIR"
 
 echo "  - [1/4] Processing k6 metrics..."
 python3 "$SCRIPTS_DIR/01_parse_k6.py"

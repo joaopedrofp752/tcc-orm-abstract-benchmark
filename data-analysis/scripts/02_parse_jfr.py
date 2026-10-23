@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-02_parse_jfr.py - Parse binary Java Flight Recorder (.jfr) files via JDK CLI.
+02_parse_jfr.py - Parse binary Java Flight Recorder (.jfr) files via JDK CLI
+supporting both 'nominal' and 'saturation' scenarios.
 """
 
 import json
@@ -13,20 +14,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = BASE_DIR / "raw-data"
 PROCESSED_DIR = BASE_DIR / "processed-data"
 
+SCENARIOS = ["nominal", "saturation"]
 STRATEGIES = ["hibernate", "hibernate-dto", "jdbc"]
 
 
 def parse_iso_duration_to_ms(duration_val) -> float:
-    """
-    Converts ISO-8601 duration format (e.g. 'PT0.0123S', 'PT15.4MS') or numbers to ms.
-    """
     if isinstance(duration_val, (int, float)):
         return float(duration_val)
 
     if not isinstance(duration_val, str):
         return 0.0
 
-    # Match seconds with decimals
     match = re.search(r"PT(?:(\d+)M)?(?:([\d.]+)S)?", duration_val)
     if match:
         minutes = float(match.group(1) or 0)
@@ -37,9 +35,6 @@ def parse_iso_duration_to_ms(duration_val) -> float:
 
 
 def extract_jfr_metrics(jfr_file: Path) -> dict:
-    """
-    Invokes JDK 'jfr print --json' and aggregates GC, CPU, and Memory telemetry.
-    """
     events_to_query = "jdk.GarbageCollection,jdk.CPULoad,jdk.GCHeapSummary"
     cmd = [
         "jfr", "print",
@@ -69,15 +64,12 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
         event_type = event.get("type")
         values = event.get("values", {})
 
-        # 1. Garbage Collection Pauses
         if event_type == "jdk.GarbageCollection":
             duration = values.get("sumOfPauses", values.get("duration", 0))
             pause_ms = parse_iso_duration_to_ms(duration)
             gc_durations.append(pause_ms)
 
-        # 2. CPU Telemetry
         elif event_type == "jdk.CPULoad":
-            # JVM usage is user + system load
             jvm_user = values.get("jvmUser", 0.0)
             jvm_system = values.get("jvmSystem", 0.0)
             machine_total = values.get("machineTotal", 0.0)
@@ -85,11 +77,10 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
             cpu_jvm_samples.append((jvm_user + jvm_system) * 100.0)
             cpu_machine_samples.append(machine_total * 100.0)
 
-        # 3. Heap Memory Usage
         elif event_type == "jdk.GCHeapSummary":
             heap_used_bytes = values.get("heapUsed", 0)
             if heap_used_bytes > 0:
-                heap_used_samples.append(heap_used_bytes / (1024 * 1024))  # Convert to MB
+                heap_used_samples.append(heap_used_bytes / (1024 * 1024))
 
     gc_count = len(gc_durations)
     total_gc_pause_ms = sum(gc_durations)
@@ -110,18 +101,16 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
     }
 
 
-def process_strategy_jfr(strategy: str) -> None:
-    jfr_dir = RAW_DIR / strategy / "jfr"
+def process_scenario_strategy_jfr(scenario: str, strategy: str) -> None:
+    jfr_dir = RAW_DIR / scenario / strategy / "jfr"
     if not jfr_dir.exists():
-        print(f"[-] Directory not found: {jfr_dir} (skipping)")
         return
 
     jfr_files = sorted(jfr_dir.glob("run_*.jfr"))
     if not jfr_files:
-        print(f"[-] No JFR files found for strategy: {strategy} (skipping)")
         return
 
-    print(f"[+] Processing {len(jfr_files)} JFR recordings for '{strategy}'...")
+    print(f"[+] Processing {len(jfr_files)} JFR recordings for [{scenario} | {strategy}]...")
     records = []
 
     for file_path in jfr_files:
@@ -130,7 +119,7 @@ def process_strategy_jfr(strategy: str) -> None:
             records.append(metrics)
 
     if records:
-        out_dir = PROCESSED_DIR / strategy
+        out_dir = PROCESSED_DIR / scenario / strategy
         out_dir.mkdir(parents=True, exist_ok=True)
         out_file = out_dir / "jfr_metrics.csv"
 
@@ -140,8 +129,9 @@ def process_strategy_jfr(strategy: str) -> None:
 
 
 def main():
-    for strategy in STRATEGIES:
-        process_strategy_jfr(strategy)
+    for scenario in SCENARIOS:
+        for strategy in STRATEGIES:
+            process_scenario_strategy_jfr(scenario, strategy)
 
 
 if __name__ == "__main__":
