@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 PROCESSED_FILE = BASE_DIR / "processed-data" / "dataset_final.csv"
 FIGURES_DIR = BASE_DIR / "figures"
 
-# Configuração visual padronizada
+# Configure standardized visual styling for publication-quality charts
 sns.set_theme(style="whitegrid", font="sans-serif")
 plt.rcParams.update({
     "font.size": 11,
@@ -30,9 +30,13 @@ PALETTE = {"hibernate": "#4C72B0", "hibernate-dto": "#55A868", "jdbc": "#DD8452"
 
 
 def plot_stability(df_subset: pd.DataFrame, scenario: str, strategy: str, out_dir: Path):
+    """
+    Render run-by-run stability figures for a given strategy and workload scenario,
+    validating stationarity and absence of transient noise across iterations.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Latência p95 por rodada
+    # 1. p95 Tail Latency per iteration
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=300)
     sns.barplot(data=df_subset, x="run", y="latency_p95_ms", color="#4C72B0", ax=ax)
     ax.set_title(f"p95 Latency Stability [{scenario.upper()} - {strategy}]")
@@ -44,7 +48,7 @@ def plot_stability(df_subset: pd.DataFrame, scenario: str, strategy: str, out_di
     fig.savefig(out_dir / "01_latency_stability.png")
     plt.close(fig)
 
-    # 2. Throughput por rodada
+    # 2. Sustained Throughput per iteration
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=300)
     sns.lineplot(data=df_subset, x="run", y="throughput_rps", marker="o", color="#55A868", ax=ax)
     ax.set_title(f"Sustained Throughput [{scenario.upper()} - {strategy}]")
@@ -56,7 +60,7 @@ def plot_stability(df_subset: pd.DataFrame, scenario: str, strategy: str, out_di
     fig.savefig(out_dir / "02_throughput_stability.png")
     plt.close(fig)
 
-    # 3. Telemetria JVM (GC e CPU)
+    # 3. JVM Telemetry: Accumulated GC pause times and mean CPU load
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=300)
     sns.barplot(data=df_subset, x="run", y="gc_total_pause_ms", color="#C44E52", ax=axes[0])
     axes[0].set_title("Total GC Pause Time (ms)")
@@ -78,15 +82,18 @@ def plot_stability(df_subset: pd.DataFrame, scenario: str, strategy: str, out_di
 
 
 def plot_global_comparisons(df: pd.DataFrame, out_dir: Path):
+    """
+    Render cross-strategy grouped comparative figures across Nominal and Saturation scenarios.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Comparação de Latência de Cauda (p95) lado a lado
+    # 1. p95 Tail Latency Comparison (Grouped Bar Chart with SD error bars)
     fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
     sns.barplot(
         data=df, x="scenario", y="latency_p95_ms", hue="strategy",
         palette=PALETTE, errorbar="sd", capsize=0.08, ax=ax
     )
-    ax.set_title("Tail Latency (p95): Nominal (300 RPS) vs Saturation (1200 RPS)")
+    ax.set_title("Tail Latency (p95): Nominal (300 RPS) vs Saturation (1,200 RPS)")
     ax.set_xlabel("Workload Scenario")
     ax.set_ylabel("p95 Latency (ms)")
     ax.set_ylim(bottom=0)
@@ -94,7 +101,7 @@ def plot_global_comparisons(df: pd.DataFrame, out_dir: Path):
     fig.savefig(out_dir / "comparison_latency_p95.png")
     plt.close(fig)
 
-    # 2. Distribuição da Cauda (Boxplot)
+    # 2. Tail Latency Distribution (Boxplot highlighting outliers and spread)
     fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
     sns.boxplot(data=df, x="scenario", y="latency_p95_ms", hue="strategy", palette=PALETTE, ax=ax, width=0.5)
     ax.set_title("Tail Latency Distribution Across Scenarios")
@@ -105,7 +112,7 @@ def plot_global_comparisons(df: pd.DataFrame, out_dir: Path):
     fig.savefig(out_dir / "distribution_latency_p95.png")
     plt.close(fig)
 
-    # 3. Comparação de Throughput
+    # 3. Sustained Throughput Comparison
     fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
     sns.barplot(
         data=df, x="scenario", y="throughput_rps", hue="strategy",
@@ -119,7 +126,7 @@ def plot_global_comparisons(df: pd.DataFrame, out_dir: Path):
     fig.savefig(out_dir / "comparison_throughput.png")
     plt.close(fig)
 
-    # 4. Pausas de GC Acumuladas
+    # 4. Total GC Pause Time Accumulation
     fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
     sns.barplot(
         data=df, x="scenario", y="gc_total_pause_ms", hue="strategy",
@@ -133,7 +140,7 @@ def plot_global_comparisons(df: pd.DataFrame, out_dir: Path):
     fig.savefig(out_dir / "comparison_gc_pause.png")
     plt.close(fig)
 
-    # 5. Utilização de CPU da JVM
+    # 5. Average JVM CPU Utilization
     fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
     sns.barplot(
         data=df, x="scenario", y="cpu_jvm_avg_pct", hue="strategy",
@@ -158,7 +165,7 @@ def main():
         print("[-] Consolidated dataset is empty.")
         sys.exit(0)
 
-    # Gráficos individuais de estabilidade
+    # Generate individual stability figures for each experimental cell
     for scenario in df["scenario"].unique():
         for strategy in df["strategy"].unique():
             df_subset = df[(df["scenario"] == scenario) & (df["strategy"] == strategy)]
@@ -167,7 +174,7 @@ def main():
                 print(f"[+] Generating stability charts for [{scenario} | {strategy}]...")
                 plot_stability(df_subset, scenario, strategy, out_dir)
 
-    # Gráficos comparativos globais
+    # Generate multi-strategy comparative charts if more than one strategy is present
     if len(df["strategy"].unique()) > 1:
         comp_dir = FIGURES_DIR / "comparisons"
         print(f"[+] Generating global comparative figures in {comp_dir.relative_to(BASE_DIR)}...")
