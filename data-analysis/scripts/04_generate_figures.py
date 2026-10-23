@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+04_generate_figures.py - Generates per-strategy stability charts and cross-scenario
+comparative visualizations for academic reporting.
+"""
+
 import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -8,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 PROCESSED_FILE = BASE_DIR / "processed-data" / "dataset_final.csv"
 FIGURES_DIR = BASE_DIR / "figures"
 
-# Configuração visual padronizada para artigos e monografia
+# Configuração visual padronizada
 sns.set_theme(style="whitegrid", font="sans-serif")
 plt.rcParams.update({
     "font.size": 11,
@@ -20,13 +26,16 @@ plt.rcParams.update({
     "figure.titlesize": 14
 })
 
-def plot_single_strategy_stability(df_strat: pd.DataFrame, strategy: str, out_dir: Path):
+PALETTE = {"hibernate": "#4C72B0", "hibernate-dto": "#55A868", "jdbc": "#DD8452"}
+
+
+def plot_stability(df_subset: pd.DataFrame, scenario: str, strategy: str, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Latência p95 por rodada
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=300)
-    sns.barplot(data=df_strat, x="run", y="latency_p95_ms", color="#4C72B0", ax=ax)
-    ax.set_title(f"p95 Latency Stability Across Iterations [{strategy}]")
+    sns.barplot(data=df_subset, x="run", y="latency_p95_ms", color="#4C72B0", ax=ax)
+    ax.set_title(f"p95 Latency Stability [{scenario.upper()} - {strategy}]")
     ax.set_xlabel("Run")
     ax.set_ylabel("p95 Latency (ms)")
     ax.set_ylim(bottom=0)
@@ -37,8 +46,8 @@ def plot_single_strategy_stability(df_strat: pd.DataFrame, strategy: str, out_di
 
     # 2. Throughput por rodada
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=300)
-    sns.lineplot(data=df_strat, x="run", y="throughput_rps", marker="o", color="#55A868", ax=ax)
-    ax.set_title(f"Sustained Throughput Across Iterations [{strategy}]")
+    sns.lineplot(data=df_subset, x="run", y="throughput_rps", marker="o", color="#55A868", ax=ax)
+    ax.set_title(f"Sustained Throughput [{scenario.upper()} - {strategy}]")
     ax.set_xlabel("Run")
     ax.set_ylabel("Throughput (RPS)")
     ax.set_ylim(bottom=0)
@@ -47,16 +56,16 @@ def plot_single_strategy_stability(df_strat: pd.DataFrame, strategy: str, out_di
     fig.savefig(out_dir / "02_throughput_stability.png")
     plt.close(fig)
 
-    # 3. Telemetria da JVM (GC e CPU)
+    # 3. Telemetria JVM (GC e CPU)
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=300)
-    sns.barplot(data=df_strat, x="run", y="gc_total_pause_ms", color="#C44E52", ax=axes[0])
+    sns.barplot(data=df_subset, x="run", y="gc_total_pause_ms", color="#C44E52", ax=axes[0])
     axes[0].set_title("Total GC Pause Time (ms)")
     axes[0].set_xlabel("Run")
     axes[0].set_ylabel("Accumulated Pause (ms)")
     axes[0].set_ylim(bottom=0)
     axes[0].tick_params(axis="x", rotation=45)
 
-    sns.lineplot(data=df_strat, x="run", y="cpu_jvm_avg_pct", marker="s", color="#8172B3", ax=axes[1])
+    sns.lineplot(data=df_subset, x="run", y="cpu_jvm_avg_pct", marker="s", color="#8172B3", ax=axes[1])
     axes[1].set_title("Average JVM CPU Utilization (%)")
     axes[1].set_xlabel("Run")
     axes[1].set_ylabel("CPU Usage (%)")
@@ -68,48 +77,74 @@ def plot_single_strategy_stability(df_strat: pd.DataFrame, strategy: str, out_di
     plt.close(fig)
 
 
-def plot_comparative_figures(df: pd.DataFrame, out_dir: Path):
-    palette = {"hibernate": "#4C72B0", "hibernate-dto": "#55A868", "jdbc": "#DD8452"}
+def plot_global_comparisons(df: pd.DataFrame, out_dir: Path):
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Comparação de Latência (Boxplot com distribuição das 10 rodadas)
-    fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
-    sns.boxplot(data=df, x="strategy", y="latency_p95_ms", palette=palette, ax=ax, width=0.4)
-    sns.stripplot(data=df, x="strategy", y="latency_p95_ms", color="black", alpha=0.6, jitter=0.1, ax=ax)
-    ax.set_title("Tail Latency (p95) Comparison Across Persistence Strategies")
-    ax.set_xlabel("Persistence Strategy")
+    # 1. Comparação de Latência de Cauda (p95) lado a lado
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
+    sns.barplot(
+        data=df, x="scenario", y="latency_p95_ms", hue="strategy",
+        palette=PALETTE, errorbar="sd", capsize=0.08, ax=ax
+    )
+    ax.set_title("Tail Latency (p95): Nominal (300 RPS) vs Saturation (1200 RPS)")
+    ax.set_xlabel("Workload Scenario")
     ax.set_ylabel("p95 Latency (ms)")
     ax.set_ylim(bottom=0)
     plt.tight_layout()
     fig.savefig(out_dir / "comparison_latency_p95.png")
     plt.close(fig)
 
-    # 2. Comparação de Throughput
-    fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
-    sns.barplot(data=df, x="strategy", y="throughput_rps", palette=palette, ax=ax, errorbar="sd", capsize=0.1)
-    ax.set_title("Sustained Throughput Comparison (Mean ± Std Dev)")
-    ax.set_xlabel("Persistence Strategy")
+    # 2. Distribuição da Cauda (Boxplot)
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
+    sns.boxplot(data=df, x="scenario", y="latency_p95_ms", hue="strategy", palette=PALETTE, ax=ax, width=0.5)
+    ax.set_title("Tail Latency Distribution Across Scenarios")
+    ax.set_xlabel("Workload Scenario")
+    ax.set_ylabel("p95 Latency (ms)")
+    ax.set_ylim(bottom=0)
+    plt.tight_layout()
+    fig.savefig(out_dir / "distribution_latency_p95.png")
+    plt.close(fig)
+
+    # 3. Comparação de Throughput
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
+    sns.barplot(
+        data=df, x="scenario", y="throughput_rps", hue="strategy",
+        palette=PALETTE, errorbar="sd", capsize=0.08, ax=ax
+    )
+    ax.set_title("Sustained Throughput Across Scenarios")
+    ax.set_xlabel("Workload Scenario")
     ax.set_ylabel("Throughput (RPS)")
     ax.set_ylim(bottom=0)
     plt.tight_layout()
     fig.savefig(out_dir / "comparison_throughput.png")
     plt.close(fig)
 
-    # 3. Comparação de Recursos JVM (GC Pause e CPU)
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), dpi=300)
-    sns.barplot(data=df, x="strategy", y="gc_total_pause_ms", palette=palette, ax=axes[0], errorbar="sd", capsize=0.1)
-    axes[0].set_title("Accumulated GC Pause Time Comparison")
-    axes[0].set_xlabel("Persistence Strategy")
-    axes[0].set_ylabel("Total Pause Time (ms)")
-    axes[0].set_ylim(bottom=0)
-
-    sns.barplot(data=df, x="strategy", y="cpu_jvm_avg_pct", palette=palette, ax=axes[1], errorbar="sd", capsize=0.1)
-    axes[1].set_title("Average JVM CPU Utilization Comparison")
-    axes[1].set_xlabel("Persistence Strategy")
-    axes[1].set_ylabel("CPU Usage (%)")
-    axes[1].set_ylim(0, 100)
-
+    # 4. Pausas de GC Acumuladas
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
+    sns.barplot(
+        data=df, x="scenario", y="gc_total_pause_ms", hue="strategy",
+        palette=PALETTE, errorbar="sd", capsize=0.08, ax=ax
+    )
+    ax.set_title("Accumulated Garbage Collection Pauses Across Scenarios")
+    ax.set_xlabel("Workload Scenario")
+    ax.set_ylabel("Total GC Pause Time (ms)")
+    ax.set_ylim(bottom=0)
     plt.tight_layout()
-    fig.savefig(out_dir / "comparison_jvm_telemetry.png")
+    fig.savefig(out_dir / "comparison_gc_pause.png")
+    plt.close(fig)
+
+    # 5. Utilização de CPU da JVM
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=300)
+    sns.barplot(
+        data=df, x="scenario", y="cpu_jvm_avg_pct", hue="strategy",
+        palette=PALETTE, errorbar="sd", capsize=0.08, ax=ax
+    )
+    ax.set_title("Average JVM CPU Utilization Across Scenarios")
+    ax.set_xlabel("Workload Scenario")
+    ax.set_ylabel("CPU Utilization (%)")
+    ax.set_ylim(0, 100)
+    plt.tight_layout()
+    fig.savefig(out_dir / "comparison_cpu_usage.png")
     plt.close(fig)
 
 
@@ -120,27 +155,26 @@ def main():
 
     df = pd.read_csv(PROCESSED_FILE)
     if df.empty:
-        print("[-] Consolidated dataset is empty. Skipping figures.")
+        print("[-] Consolidated dataset is empty.")
         sys.exit(0)
 
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    strategies = df["strategy"].unique()
+    # Gráficos individuais de estabilidade
+    for scenario in df["scenario"].unique():
+        for strategy in df["strategy"].unique():
+            df_subset = df[(df["scenario"] == scenario) & (df["strategy"] == strategy)]
+            if not df_subset.empty:
+                out_dir = FIGURES_DIR / scenario / strategy
+                print(f"[+] Generating stability charts for [{scenario} | {strategy}]...")
+                plot_stability(df_subset, scenario, strategy, out_dir)
 
-    # Gera os gráficos individuais de cada estratégia em sua própria pasta
-    for strat in strategies:
-        df_strat = df[df["strategy"] == strat].copy()
-        strat_dir = FIGURES_DIR / strat
-        print(f"[+] Generating stability figures for '{strat}' in figures/{strat}/...")
-        plot_single_strategy_stability(df_strat, strat, strat_dir)
+    # Gráficos comparativos globais
+    if len(df["strategy"].unique()) > 1:
+        comp_dir = FIGURES_DIR / "comparisons"
+        print(f"[+] Generating global comparative figures in {comp_dir.relative_to(BASE_DIR)}...")
+        plot_global_comparisons(df, comp_dir)
 
-    # Se houver mais de uma estratégia coletada, gera os gráficos comparativos na raiz
-    if len(strategies) > 1:
-        print(f"[+] Generating cross-strategy comparative figures in figures/...")
-        plot_comparative_figures(df, FIGURES_DIR)
-    else:
-        print("[i] Only 1 strategy available. Comparative charts will be generated once other strategies are executed.")
+    print("==> Figure generation finished successfully.")
 
-    print(f"==> Figures successfully organized in: {FIGURES_DIR.name}/")
 
 if __name__ == "__main__":
     main()
