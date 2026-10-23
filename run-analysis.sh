@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Enforce strict execution mode
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,6 +11,7 @@ ANALYSIS_LOG="$ROOT_DIR/data-analysis.log"
 PROCESSED_DIR="$ANALYSIS_DIR/processed-data"
 FIGURES_DIR="$ANALYSIS_DIR/figures"
 
+# Enforce active virtual environment or load project-local venv
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     if [[ -f "$VENV_ACTIVATE" ]]; then
         source "$VENV_ACTIVATE"
@@ -20,24 +22,30 @@ if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     fi
 fi
 
+# Duplicate all stdout and stderr streams to both terminal and cumulative log file
 exec > >(tee -a "$ANALYSIS_LOG") 2>&1
 
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] Data Analysis Pipeline Initialized"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Data analysis pipeline initialized"
 echo "Running data analysis pipeline..."
 
+# Purge previously generated outputs to prevent stale or orphaned artifacts
 echo "  - Resetting processed-data and figures directories..."
 rm -rf "$PROCESSED_DIR" "$FIGURES_DIR"
 mkdir -p "$PROCESSED_DIR" "$FIGURES_DIR"
 
+# Stage 1: Parse raw k6 CSV latency and throughput samples
 echo "  - [1/4] Processing k6 metrics..."
 python3 "$SCRIPTS_DIR/01_parse_k6.py"
 
+# Stage 2: Extract GC pauses, CPU utilization, and heap telemetry from JFR files
 echo "  - [2/4] Extracting JFR telemetry..."
 python3 "$SCRIPTS_DIR/02_parse_jfr.py"
 
+# Stage 3: Consolidate parsed telemetry into single unified dataset
 echo "  - [3/4] Consolidating dataset..."
 python3 "$SCRIPTS_DIR/03_consolidate.py"
 
+# Stage 4: Render stability plots and multi-scenario comparative figures (300 DPI)
 echo "  - [4/4] Generating figures..."
 python3 "$SCRIPTS_DIR/04_generate_figures.py"
 

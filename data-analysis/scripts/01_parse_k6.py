@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 01_parse_k6.py - Extract latency percentiles and throughput from raw k6 CSVs
-supporting both 'nominal' and 'saturation' scenarios.
+supporting both 'nominal' (300 RPS) and 'saturation' (1,200 RPS) workload profiles.
 """
 
 from pathlib import Path
@@ -16,6 +16,10 @@ STRATEGIES = ["hibernate", "hibernate-dto", "jdbc"]
 
 
 def process_k6_run(file_path: Path) -> dict:
+    """
+    Parse a single k6 execution CSV, extracting HTTP request durations and computing
+    summary statistics (quantiles, arithmetic mean, and sustained throughput).
+    """
     run_id = file_path.stem
     usecols = ["metric_name", "metric_value", "timestamp"]
 
@@ -25,6 +29,7 @@ def process_k6_run(file_path: Path) -> dict:
         print(f"  ! Error reading {file_path.name}: {e}")
         return None
 
+    # Filter strictly for end-to-end HTTP request duration samples (in milliseconds)
     latencies = df.loc[df["metric_name"] == "http_req_duration", "metric_value"]
     total_reqs = len(latencies)
 
@@ -32,10 +37,12 @@ def process_k6_run(file_path: Path) -> dict:
         print(f"  ! Warning: No http_req_duration samples in {file_path.name}")
         return None
 
+    # Calculate sustained throughput based on observed time boundaries
     timestamps = df["timestamp"]
     duration_sec = max(timestamps.max() - timestamps.min(), 1.0)
     throughput_rps = total_reqs / duration_sec
 
+    # Return key statistical indicators for performance evaluation
     return {
         "run": run_id,
         "http_reqs_total": int(total_reqs),
@@ -51,6 +58,10 @@ def process_k6_run(file_path: Path) -> dict:
 
 
 def process_scenario_strategy(scenario: str, strategy: str) -> None:
+    """
+    Process all k6 execution CSVs for a specific scenario and persistence strategy,
+    persisting summary metrics into an intermediate CSV dataset.
+    """
     k6_dir = RAW_DIR / scenario / strategy / "k6"
     if not k6_dir.exists():
         return

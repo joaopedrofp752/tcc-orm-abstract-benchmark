@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Enforce strict error handling: exit immediately on command error (-e),
+# undefined variables (-u), or pipeline failures (-o pipefail).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,7 +11,7 @@ DB_PID_FILE="$ROOT_DIR/.database_log.pid"
 BACKEND_LOG="$ROOT_DIR/backend.log"
 DB_LOG="$ROOT_DIR/database.log"
 
-# 1. Environment Pre-flight
+# Pre-flight environment checks to avoid runtime collisions and resource contention
 echo "Checking environment..."
 
 if ! docker info > /dev/null 2>&1; then
@@ -23,6 +25,7 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
     exit 1
 fi
 
+# Ensure port 5432 (PostgreSQL) and 8080 (Spring Boot) are free before binding
 if ss -tuln | grep -q ':5432 '; then
     echo "  ! Error: Port 5432 is already occupied."
     exit 1
@@ -34,17 +37,19 @@ if ss -tuln | grep -q ':8080 '; then
 fi
 echo "  - Ports 5432 and 8080 are free"
 
-# 2. Database Initialization & Telemetry
+# Start the PostgreSQL container with detached state
 echo ""
 echo "Initializing PostgreSQL..."
 echo "  - Starting container via Docker Compose..."
 docker compose -f "$COMPOSE_FILE" up -d > /dev/null 2>&1
 
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] PostgreSQL Container Initialized" >> "$DB_LOG"
+# Stream container logs in background to database.log and store PID for cleanup
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] PostgreSQL container initialized" >> "$DB_LOG"
 docker compose -f "$COMPOSE_FILE" logs -f db >> "$DB_LOG" 2>&1 &
 echo $! > "$DB_PID_FILE"
 echo "  - Database logging attached -> $(basename "$DB_LOG")"
 
+# Poll PostgreSQL using pg_isready until the engine is fully accepting connections
 DB_TIMEOUT=90
 DB_ELAPSED=0
 
@@ -61,7 +66,7 @@ until docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U postgres > /dev
 done
 printf "\r  - PostgreSQL is accepting connections (ready in %ds)             \n" "$DB_ELAPSED"
 
-# 3. Backend Build
+# Build the Spring Boot application artifact in an isolated subshell
 echo ""
 echo "Compiling backend..."
 echo "  - Running Maven clean package..."
@@ -77,16 +82,18 @@ if [[ -z "$JAR_FILE" ]]; then
 fi
 echo "  - Artifact ready: $(basename "$JAR_FILE")"
 
-# 4. JVM Startup & Health Check
+# Launch JVM with equal initial (-Xms) and maximum (-Xmx) heap size to prevent
+# runtime resizing overhead and latency spikes during memory expansion
 echo ""
 echo "Launching JVM..."
 echo "  - Configuration: -Xms1g -Xmx1g -XX:+UseG1GC"
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] JVM Backend Initialized" >> "$BACKEND_LOG"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] JVM backend initialized" >> "$BACKEND_LOG"
 java -XX:+UseG1GC -Xms1g -Xmx1g -jar "$JAR_FILE" >> "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > "$PID_FILE"
 echo "  - Process started (PID $BACKEND_PID) -> $(basename "$BACKEND_LOG")"
 
+# Poll Spring Boot Actuator endpoint until the HTTP server reports status UP
 APP_TIMEOUT=60
 APP_ELAPSED=0
 

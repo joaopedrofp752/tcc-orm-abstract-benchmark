@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-02_parse_jfr.py - Parse binary Java Flight Recorder (.jfr) files via JDK CLI
-supporting both 'nominal' and 'saturation' scenarios.
+02_parse_jfr.py - Parse binary Java Flight Recorder (.jfr) files via JDK CLI,
+extracting garbage collection pauses, CPU load, and peak heap utilization.
 """
 
 import json
@@ -19,6 +19,10 @@ STRATEGIES = ["hibernate", "hibernate-dto", "jdbc"]
 
 
 def parse_iso_duration_to_ms(duration_val) -> float:
+    """
+    Convert ISO-8601 duration representations (e.g., PT0.052S or PT1M30S)
+    or numeric values into milliseconds.
+    """
     if isinstance(duration_val, (int, float)):
         return float(duration_val)
 
@@ -35,6 +39,10 @@ def parse_iso_duration_to_ms(duration_val) -> float:
 
 
 def extract_jfr_metrics(jfr_file: Path) -> dict:
+    """
+    Invoke JDK 'jfr print --json' CLI to extract low-overhead HotSpot runtime events:
+    GC pauses, CPU load distributions, and GC heap summaries.
+    """
     events_to_query = "jdk.GarbageCollection,jdk.CPULoad,jdk.GCHeapSummary"
     cmd = [
         "jfr", "print",
@@ -60,15 +68,18 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
     cpu_machine_samples = []
     heap_used_samples = []
 
+    # Iterate through recorded HotSpot telemetry events
     for event in events:
         event_type = event.get("type")
         values = event.get("values", {})
 
+        # Extract stop-the-world and concurrent GC pause times
         if event_type == "jdk.GarbageCollection":
             duration = values.get("sumOfPauses", values.get("duration", 0))
             pause_ms = parse_iso_duration_to_ms(duration)
             gc_durations.append(pause_ms)
 
+        # Track process-level (JVM user + system) and host CPU utilization
         elif event_type == "jdk.CPULoad":
             jvm_user = values.get("jvmUser", 0.0)
             jvm_system = values.get("jvmSystem", 0.0)
@@ -77,6 +88,7 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
             cpu_jvm_samples.append((jvm_user + jvm_system) * 100.0)
             cpu_machine_samples.append(machine_total * 100.0)
 
+        # Track dynamic memory allocation and committed heap occupancy
         elif event_type == "jdk.GCHeapSummary":
             heap_used_bytes = values.get("heapUsed", 0)
             if heap_used_bytes > 0:
@@ -102,6 +114,10 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
 
 
 def process_scenario_strategy_jfr(scenario: str, strategy: str) -> None:
+    """
+    Process all JFR recording files for a specific scenario and strategy pair,
+    persisting parsed runtime telemetry into an intermediate CSV.
+    """
     jfr_dir = RAW_DIR / scenario / strategy / "jfr"
     if not jfr_dir.exists():
         return
