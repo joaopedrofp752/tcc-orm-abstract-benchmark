@@ -18,6 +18,7 @@ STRATEGIES = ["hibernate", "hibernate-dto", "jdbc"]
 def main():
     consolidated_frames = []
 
+    # Traverse all scenario and strategy intersections
     for scenario in SCENARIOS:
         for strategy in STRATEGIES:
             strat_dir = PROCESSED_DIR / scenario / strategy
@@ -30,10 +31,10 @@ def main():
             k6_df = pd.read_csv(k6_file)
             jfr_df = pd.read_csv(jfr_file)
 
-            # Combina pelo identificador da rodada ('run')
+            # Perform inner join on the execution iteration key ('run')
             merged = pd.merge(k6_df, jfr_df, on="run", how="inner")
             
-            # Injeta as variáveis categóricas de controle
+            # Inject categorical experimental factors for statistical grouping and ANOVA
             merged.insert(0, "strategy", strategy)
             merged.insert(0, "scenario", scenario)
             
@@ -44,6 +45,7 @@ def main():
         print("[!] No data available to consolidate. Execute 01_parse_k6 and 02_parse_jfr first.")
         return
 
+    # Concatenate all subsets into a unified tidy dataframe
     final_df = pd.concat(consolidated_frames, ignore_index=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(FINAL_FILE, index=False)
@@ -51,7 +53,10 @@ def main():
     print(f"\n==> Consolidated dataset ready: {FINAL_FILE.relative_to(BASE_DIR)}")
     print(f"  - Total records: {len(final_df)} rows")
     print("\nPreview:")
-    preview_cols = ["scenario", "strategy", "run", "throughput_rps", "latency_p95_ms", "gc_total_pause_ms", "cpu_jvm_avg_pct"]
+    preview_cols = [
+        "scenario", "strategy", "run", "throughput_rps",
+        "latency_p95_ms", "gc_total_pause_ms", "cpu_jvm_avg_pct"
+    ]
     print(final_df[preview_cols].head(10).to_string(index=False))
 
 
