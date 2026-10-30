@@ -46,9 +46,14 @@ echo "  - [3/4] Consolidating dataset..."
 python3 "$SCRIPTS_DIR/03_consolidate.py"
 
 # Stage 4: Render stability plots and multi-scenario comparative figures (300 DPI)
-echo "  - [4/4] Generating figures..."
+echo "  - [4/5] Generating figures..."
 python3 "$SCRIPTS_DIR/04_generate_figures.py"
 
+# Stage 5: Statistical validation (Shapiro-Wilk normality & Wilcoxon/Mann-Whitney)
+echo "  - [5/5] Running statistical validation tests..."
+python3 "$SCRIPTS_DIR/05_statistical_tests.py"
+
 echo "Analysis complete."
-echo "  - Dataset: data-analysis/processed-data/dataset_final.csv"
-echo "  - Figures: data-analysis/figures/"
+echo "  - Dataset:             data-analysis/processed-data/dataset_final.csv"
+echo "  - Statistical Results: data-analysis/processed-data/"
+echo "  - Figures:             data-analysis/figures/"
