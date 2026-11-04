@@ -2,6 +2,21 @@
 """
 05_statistical_tests.py - Perform Shapiro-Wilk normality and Wilcoxon/Mann-Whitney
 hypothesis tests, and render split-scale distribution boxplots for academic reporting.
+
+Inferential Statistics Methodology:
+1. Normality Assessment (Shapiro-Wilk):
+   - Null Hypothesis (H0): The population is normally distributed.
+   - If p < 0.05, H0 is rejected, invalidating parametric tests (Student's t / ANOVA)
+     and formally mandating non-parametric statistical methods.
+2. Independent Rank-Sum Testing (Mann-Whitney U):
+   - Compares overall distribution rankings between two independent strategy samples.
+   - Robust against non-normal skewness and extreme outliers.
+3. Paired Signed-Rank Testing (Wilcoxon):
+   - Treats iteration pairs (run_01 to run_10) as matched tests executed under
+     identical temporal, background OS, and thermal conditions.
+4. Decoupled Dual-Axis Visualization:
+   - Implements an Edward Tufte small-multiples layout to resolve the scale disparity
+     between Nominal (~4 ms) and Saturation (~700 ms) without flattening quartis.
 """
 
 import sys
@@ -43,8 +58,8 @@ plt.rcParams.update({
 
 def run_shapiro_wilk(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Perform the Shapiro-Wilk test of normality across all experimental cells
-    to validate whether parametric assumptions hold for each measured metric.
+    Perform the Shapiro-Wilk test of normality across all experimental cells.
+    Validates whether parametric assumptions hold for each measured metric.
     """
     print("[+] Running Shapiro-Wilk normality tests (alpha = 0.05)...")
     records = []
@@ -75,8 +90,9 @@ def run_shapiro_wilk(df: pd.DataFrame) -> pd.DataFrame:
 
 def run_hypothesis_tests(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute non-parametric pairwise hypothesis tests (Mann-Whitney U for independent samples
-    and Wilcoxon Signed-Rank for paired runs) to evaluate statistical significance.
+    Compute non-parametric pairwise hypothesis tests:
+    - Mann-Whitney U: Evaluates stochastic dominance between unpaired distributions.
+    - Wilcoxon Signed-Rank: Evaluates median paired differences across identical runs.
     """
     print("[+] Running non-parametric hypothesis tests (Mann-Whitney U & Wilcoxon)...")
     records = []
@@ -93,11 +109,11 @@ def run_hypothesis_tests(df: pd.DataFrame) -> pd.DataFrame:
                 # Mann-Whitney U test (independent distribution comparison)
                 stat_u, p_u = stats.mannwhitneyu(data1[metric], data2[metric], alternative="two-sided")
 
-                # Wilcoxon signed-rank test (paired by execution iteration)
+                # Wilcoxon signed-rank test (paired by execution iteration key)
                 try:
                     stat_w, p_w = stats.wilcoxon(data1[metric].values, data2[metric].values)
                 except ValueError:
-                    # Occurs if all paired differences are zero
+                    # Fallback if all paired differences are identical/zero
                     stat_w, p_w = 0.0, 1.0
 
                 records.append({
@@ -122,12 +138,20 @@ def plot_split_latency_distribution(df: pd.DataFrame, out_dir: Path) -> None:
     """
     Render decoupled dual-axis subplots for p95 tail latency distribution,
     optimizing aspect ratio and vertical focus on the active performance ranges.
+
+    Visual Representation Design:
+    - sharey=False decouples the Y-axes, allowing independent linear scales.
+    - Nominal Subplot: Scaled to 2.5 - 8.5 ms to contain both steady-state
+      variances (~0.02 ms IQR) and initial JIT warmup transients (run_01).
+    - Saturation Subplot: Scaled to 665 - 750 ms to clearly visualize the distinct
+      architectural performance tiers (JDBC: 676 ms, DTO: 708 ms, Hibernate: 739 ms).
+    - Triangle markers (^): Represent arithmetic means (showmeans=True), exposing
+      the upward skew created by the JIT warmup iteration.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / "distribution_latency_p95_split.png"
 
     print("[+] Rendering improved p95 tail latency distribution boxplot...")
-    # Adjust aspect ratio to 10x5.5 to avoid horizontal flattening and compression
     fig, axes = plt.subplots(1, 2, figsize=(10, 5.5), dpi=300, sharey=False)
 
     box_kwargs = {
@@ -158,7 +182,6 @@ def plot_split_latency_distribution(df: pd.DataFrame, out_dir: Path) -> None:
     axes[0].set_title("Nominal Scenario (300 RPS)", fontsize=12, fontweight="bold")
     axes[0].set_ylabel("p95 Latency (ms)", fontsize=11)
     axes[0].set_xlabel("")
-    # Eliminate idle space below 2.5 ms while preserving JIT warmup outliers
     axes[0].set_ylim(2.5, 8.5)
 
     # 2. Subplot: Saturation Scenario (focused strictly on the 665 ms - 750 ms bracket)
@@ -176,7 +199,6 @@ def plot_split_latency_distribution(df: pd.DataFrame, out_dir: Path) -> None:
     axes[1].set_title("Saturation Scenario (1,200 RPS)", fontsize=12, fontweight="bold")
     axes[1].set_ylabel("p95 Latency (ms)", fontsize=11)
     axes[1].set_xlabel("")
-    # Span the vertical range across the observed architectural tiers (676, 708, and 739 ms)
     axes[1].set_ylim(665, 750)
 
     plt.suptitle("Tail Latency Distribution (p95) by Persistence Strategy", fontsize=13, fontweight="bold", y=0.98)
@@ -188,6 +210,7 @@ def plot_split_latency_distribution(df: pd.DataFrame, out_dir: Path) -> None:
 
 
 def main():
+    """Execute complete statistical validation pipeline and decoupled figure generation."""
     if not DATASET_PATH.exists():
         print(f"[-] Consolidated dataset not found: {DATASET_PATH}")
         sys.exit(1)
