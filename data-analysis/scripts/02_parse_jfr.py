@@ -2,6 +2,16 @@
 """
 02_parse_jfr.py - Parse binary Java Flight Recorder (.jfr) files via JDK CLI,
 extracting garbage collection pauses, CPU load, and peak heap utilization.
+
+Low-Overhead Telemetry Notes:
+- Leverages the official OpenJDK CLI tool (`jfr print --json`) to parse native binary
+  recordings without requiring external Java dependencies.
+- JFR operates with near-zero overhead (< 1%), capturing runtime HotSpot events
+  directly from native JVM ring buffers.
+- Tracks three critical JVM sub-systems:
+  1. jdk.GarbageCollection: Stop-The-World (STW) pauses and concurrent cycles.
+  2. jdk.CPULoad: JVM-specific vs. Host machine CPU utilization.
+  3. jdk.GCHeapSummary: Dynamic heap occupancy after collector cycles.
 """
 
 import json
@@ -73,13 +83,15 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
         event_type = event.get("type")
         values = event.get("values", {})
 
-        # Extract stop-the-world and concurrent GC pause times
+        # Extract stop-the-world and concurrent GC pause times (G1 collector)
         if event_type == "jdk.GarbageCollection":
             duration = values.get("sumOfPauses", values.get("duration", 0))
             pause_ms = parse_iso_duration_to_ms(duration)
             gc_durations.append(pause_ms)
 
-        # Track process-level (JVM user + system) and host CPU utilization
+        # Track process-level (JVM user + system) and host CPU utilization.
+        # jvmUser + jvmSystem isolates framework and query mapping overhead,
+        # distinguishing application workload from OS background processes.
         elif event_type == "jdk.CPULoad":
             jvm_user = values.get("jvmUser", 0.0)
             jvm_system = values.get("jvmSystem", 0.0)
@@ -94,6 +106,7 @@ def extract_jfr_metrics(jfr_file: Path) -> dict:
             if heap_used_bytes > 0:
                 heap_used_samples.append(heap_used_bytes / (1024 * 1024))
 
+    # Compute statistical aggregates for this benchmark iteration
     gc_count = len(gc_durations)
     total_gc_pause_ms = sum(gc_durations)
     avg_gc_pause_ms = (total_gc_pause_ms / gc_count) if gc_count > 0 else 0.0
@@ -145,6 +158,7 @@ def process_scenario_strategy_jfr(scenario: str, strategy: str) -> None:
 
 
 def main():
+    """Iterate through all experimental cells and extract JFR runtime telemetry."""
     for scenario in SCENARIOS:
         for strategy in STRATEGIES:
             process_scenario_strategy_jfr(scenario, strategy)

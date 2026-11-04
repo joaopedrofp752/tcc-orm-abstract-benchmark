@@ -2,6 +2,13 @@
 """
 01_parse_k6.py - Extract latency percentiles and throughput from raw k6 CSVs
 supporting both 'nominal' (300 RPS) and 'saturation' (1,200 RPS) workload profiles.
+
+Architecture & Telemetry Notes:
+- Reads high-volume CSV logs produced by k6 load test executions.
+- Isolates end-to-end client-perceived duration (http_req_duration), covering
+  TCP socket acquisition, HTTP processing, database query, and response transfer.
+- Computes non-parametric percentiles (p50, p90, p95, p99) to accurately evaluate
+  tail latencies under queuing contention, where arithmetic means mask degradation.
 """
 
 from pathlib import Path
@@ -17,8 +24,12 @@ STRATEGIES = ["hibernate", "hibernate-dto", "jdbc"]
 
 def process_k6_run(file_path: Path) -> dict:
     """
-    Parse a single k6 execution CSV, extracting HTTP request durations and computing
-    summary statistics (quantiles, arithmetic mean, and sustained throughput).
+    Parse an individual k6 execution CSV log, extracting request timing samples
+    and aggregating primary performance indicators.
+
+    Memory Optimization:
+    - Only reads 'metric_name', 'metric_value', and 'timestamp' via `usecols`
+      to prevent parsing overhead on multi-hundred-megabyte CSV files.
     """
     run_id = file_path.stem
     usecols = ["metric_name", "metric_value", "timestamp"]
@@ -29,7 +40,9 @@ def process_k6_run(file_path: Path) -> dict:
         print(f"  ! Error reading {file_path.name}: {e}")
         return None
 
-    # Filter strictly for end-to-end HTTP request duration samples (in milliseconds)
+    # Filter strictly for end-to-end HTTP request duration samples (in milliseconds).
+    # In k6, http_req_duration represents the total round-trip time:
+    # http_req_sending + http_req_waiting (TTFB) + http_req_receiving.
     latencies = df.loc[df["metric_name"] == "http_req_duration", "metric_value"]
     total_reqs = len(latencies)
 
@@ -37,12 +50,15 @@ def process_k6_run(file_path: Path) -> dict:
         print(f"  ! Warning: No http_req_duration samples in {file_path.name}")
         return None
 
-    # Calculate sustained throughput based on observed time boundaries
+    # Derive sustained throughput (RPS) based on the boundary timestamps of the run.
+    # A 1.0-second clamp avoids division by zero in degraded or truncated runs.
     timestamps = df["timestamp"]
     duration_sec = max(timestamps.max() - timestamps.min(), 1.0)
     throughput_rps = total_reqs / duration_sec
 
-    # Return key statistical indicators for performance evaluation
+    # Return key statistical indicators for performance evaluation:
+    # - p50 (Median): Typical user experience unaffected by outliers.
+    # - p90/p95/p99: Tail latencies capturing connection pool contention in HikariCP.
     return {
         "run": run_id,
         "http_reqs_total": int(total_reqs),
@@ -89,6 +105,7 @@ def process_scenario_strategy(scenario: str, strategy: str) -> None:
 
 
 def main():
+    """Iterate through all experimental permutations and generate intermediate metrics."""
     for scenario in SCENARIOS:
         for strategy in STRATEGIES:
             process_scenario_strategy(scenario, strategy)

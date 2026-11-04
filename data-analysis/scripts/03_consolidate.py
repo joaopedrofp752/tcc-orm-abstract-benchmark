@@ -2,6 +2,17 @@
 """
 03_consolidate.py - Merge k6 and JFR metrics across all scenarios and strategies
 into a single unified tidy dataset (dataset_final.csv).
+
+Data Modeling & Tidy Data Notes:
+- Conforms to Hadley Wickham's 'Tidy Data' principles:
+  1. Each variable forms a column (e.g., latency_p95_ms, throughput_rps, gc_total_pause_ms).
+  2. Each observation forms a row (a distinct benchmark execution run).
+  3. Each type of observational unit forms a table.
+- Performs a deterministic inner join on the execution run key ('run') to guarantee
+  that network-level measurements (k6) are paired precisely with their corresponding
+  internal JVM telemetry (JFR).
+- Injects categorical experimental factors ('scenario' and 'strategy') as primary keys
+  for grouped statistical inference (Shapiro-Wilk, Mann-Whitney U, Wilcoxon).
 """
 
 from pathlib import Path
@@ -31,13 +42,13 @@ def main():
             k6_df = pd.read_csv(k6_file)
             jfr_df = pd.read_csv(jfr_file)
 
-            # Perform inner join on the execution iteration key ('run')
+            # Perform deterministic inner join on the iteration key ('run')
             merged = pd.merge(k6_df, jfr_df, on="run", how="inner")
-            
-            # Inject categorical experimental factors for statistical grouping and ANOVA
+
+            # Inject categorical experimental factors for statistical grouping
             merged.insert(0, "strategy", strategy)
             merged.insert(0, "scenario", scenario)
-            
+
             consolidated_frames.append(merged)
             print(f"[+] Consolidated {len(merged)} runs for [{scenario} | {strategy}]")
 
@@ -45,7 +56,7 @@ def main():
         print("[!] No data available to consolidate. Execute 01_parse_k6 and 02_parse_jfr first.")
         return
 
-    # Concatenate all subsets into a unified tidy dataframe
+    # Concatenate all experimental cells into a unified tidy dataset
     final_df = pd.concat(consolidated_frames, ignore_index=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(FINAL_FILE, index=False)
