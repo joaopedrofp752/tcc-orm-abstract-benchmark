@@ -14,6 +14,7 @@ Ensure the following tools are installed and accessible in your `$PATH`:
 * **Docker & Docker Compose** (for PostgreSQL)
 * **k6** (HTTP load testing engine)
 * **Python 3.10+** (with `venv` support)
+* **`tmux`** *(optional, recommended for headless TTY execution)*
 
 ---
 
@@ -73,6 +74,29 @@ deactivate
 ## Benchmark Workflow
 
 Each persistence strategy is isolated on its dedicated Git branch: `hibernate`, `hibernate-dto`, and `jdbc`.
+
+### Headless Execution via TTY & `tmux` (Optional)
+
+To minimize operating system jitter, background GUI compositing, and desktop daemon interruptions during the 60-run suite, the benchmark can be executed from a pure text console (TTY without an active Desktop Environment) inside a persistent `tmux` session:
+
+```bash
+# 1. Switch to a headless multi-user console (stops the graphical environment)
+sudo systemctl isolate multi-user.target
+
+# 2. Create a named tmux session to protect execution from SIGHUP disconnects
+tmux new -s tcc-lab
+
+# 3. Launch the master orchestrator
+./run-all.sh
+
+# Optional: Detach from the session at any time without stopping the benchmark
+# Press: Ctrl+b, then d
+# Reattach later with: tmux attach -t tcc-lab
+```
+
+*(Tip: Split panes in `tmux` using `Ctrl+b %` or `Ctrl+b "` to monitor `backend.log`, `database.log`, and `load-tests.log` in real time while the orchestrator runs. To return to the graphical interface afterward, run `sudo systemctl isolate graphical.target`.)*
+
+---
 
 ### Option A: Fully Automated Execution (Recommended)
 
