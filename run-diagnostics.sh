@@ -33,17 +33,19 @@ ROUND_ORDERS=(
     "hibernate jdbc hibernate-dto"
 )
 
-# Trap handler: ensure clean environment teardown and Git branch restoration on SIGINT/SIGTERM
-cleanup_on_interrupt() {
-    echo ""
-    echo "  ! Interruption detected (SIGINT/SIGTERM)."
-    echo "  ! Cleaning up lab environment before exit..."
-    "$ROOT_DIR/down-lab.sh" > /dev/null 2>&1 || true
-    git switch "$INITIAL_BRANCH" > /dev/null 2>&1 || true
-    echo "  ! Environment safely restored to branch [$INITIAL_BRANCH]."
-    exit 130
+# Universal exit trap: ensure clean environment teardown and Git branch restoration on any abnormal exit
+cleanup_on_exit() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo ""
+        echo "  ! Abnormal termination detected (exit code $exit_code)."
+        echo "  ! Cleaning up lab environment and restoring branch [$INITIAL_BRANCH]..."
+        "$ROOT_DIR/down-lab.sh" > /dev/null 2>&1 || true
+        git switch "$INITIAL_BRANCH" > /dev/null 2>&1 || true
+        echo "  ! Environment safely restored to branch [$INITIAL_BRANCH]."
+    fi
 }
-trap cleanup_on_interrupt SIGINT SIGTERM
+trap cleanup_on_exit EXIT
 
 echo "Diagnostic benchmark orchestrator initialized"
 echo "Workload profile: saturation (1,200 RPS) | Interleaved rounds: $TOTAL_ROUNDS"
@@ -178,15 +180,15 @@ for round in $(seq 1 "$TOTAL_ROUNDS"); do
 
         # Compute interval deltas across t0 -> t1 and serialize structured telemetry to JSON
         ROUND="$round" STRATEGY="$strategy" \
-        WALL_T0="$wall_t0" WALL_T1="$wall_t1" \
-        JVM_TICKS_T0="$jvm_ticks_t0" JVM_TICKS_T1="$jvm_ticks_t1" \
-        K6_TICKS_T0="$k6_ticks_t0" K6_TICKS_LAST="$k6_ticks_last" \
-        HIKARI_USAGE_T0="$hikari_usage_t0" HIKARI_USAGE_T1="$hikari_usage_t1" \
-        HIKARI_ACQ_T0="$hikari_acq_t0" HIKARI_ACQ_T1="$hikari_acq_t1" \
-        HIKARI_TO_T0="$hikari_to_t0" HIKARI_TO_T1="$hikari_to_t1" \
-        PG_CPU_T0="$pg_cpu_t0" PG_CPU_T1="$pg_cpu_t1" \
-        PG_IO_T0="$pg_io_t0" PG_IO_T1="$pg_io_t1" \
-        PENDING_SAMPLES="$pending_samples" ACTIVE_SAMPLES="$active_samples" \
+        WALL_T0="$WALL_T0" WALL_T1="$WALL_T1" \
+        JVM_TICKS_T0="$JVM_TICKS_T0" JVM_TICKS_T1="$JVM_TICKS_T1" \
+        K6_TICKS_T0="$K6_TICKS_T0" K6_TICKS_LAST="$K6_TICKS_LAST" \
+        HIKARI_USAGE_T0="$HIKARI_USAGE_T0" HIKARI_USAGE_T1="$HIKARI_USAGE_T1" \
+        HIKARI_ACQ_T0="$HIKARI_ACQ_T0" HIKARI_ACQ_T1="$HIKARI_ACQ_T1" \
+        HIKARI_TO_T0="$HIKARI_TO_T0" HIKARI_TO_T1="$HIKARI_TO_T1" \
+        PG_CPU_T0="$PG_CPU_T0" PG_CPU_T1="$PG_CPU_T1" \
+        PG_IO_T0="$PG_IO_T0" PG_IO_T1="$PG_IO_T1" \
+        PENDING_SAMPLES="$PENDING_SAMPLES" ACTIVE_SAMPLES="$ACTIVE_SAMPLES" \
         python3 - << 'PYEOF' > "$STRAT_DIR/telemetry/run_${RUN_NUM}.json"
 import json
 import os
