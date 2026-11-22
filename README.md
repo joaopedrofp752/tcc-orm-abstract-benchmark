@@ -1,6 +1,7 @@
-# Persistence Layer Benchmark (Spring Boot & Java 21)
+# Persistence Layer Benchmark (Spring Boot 4.1.1 & Java 21)
 
-A reproducible benchmark harness evaluating latency, throughput, and JVM resource consumption across three persistence approaches: **Hibernate ORM**, **Hibernate DTO projections**, and **Native JDBC** under two distinct workload profiles:
+A reproducible benchmark harness evaluating tail latency, sustained throughput, JVM Garbage Collection overhead, and connection pool contention across three persistence approaches — **Hibernate ORM (Managed Entities)**, **Hibernate DTO Projections**, and **Native JDBC** — running on **Java 21**, **Spring Boot 4.1.1 (Hibernate 7)**, and **PostgreSQL 17-Alpine** under two workload profiles:
+
 * **Nominal:** 300 RPS (30 pre-allocated VUs / 90 max VUs)
 * **Saturation:** 1,200 RPS (120 pre-allocated VUs / 360 max VUs)
 
@@ -11,10 +12,10 @@ A reproducible benchmark harness evaluating latency, throughput, and JVM resourc
 Ensure the following tools are installed and accessible in your `$PATH`:
 
 * **JDK 21+** (must include native `jfr` and `jcmd` CLI utilities)
-* **Docker & Docker Compose** (for PostgreSQL)
+* **Docker & Docker Compose** (for PostgreSQL 17-Alpine)
 * **k6** (HTTP load testing engine)
 * **Python 3.10+** (with `venv` support)
-* **`tmux`** *(optional, recommended for headless TTY execution)*
+* **tmux** (recommended for persistent headless execution; integrates with `systemd-inhibit` when available)
 
 ---
 
@@ -22,11 +23,12 @@ Ensure the following tools are installed and accessible in your `$PATH`:
 
 ```text
 .
-├── backend/            # Spring Boot 3 / Java 21 application
-├── database/           # PostgreSQL configuration, schemas, and compose file
+├── backend/            # Spring Boot 4.1.1 (Hibernate 7) / Java 21 application
+├── database/           # PostgreSQL 17-Alpine configuration, schemas, and compose file
 ├── load-tests/         # Parametrized k6 execution scripts (nominal / saturation / warmup)
 ├── data-analysis/      # Data pipeline, telemetry parsers, and figure generators
-│   ├── scripts/        # Python ETL & statistics scripts (01 to 05)
+│   ├── scripts/        # Python ETL & inferential statistics scripts (01 to 05)
+│   │   ├── create-venv.sh
 │   │   ├── 01_parse_k6.py
 │   │   ├── 02_parse_jfr.py
 │   │   ├── 03_consolidate.py
@@ -34,25 +36,31 @@ Ensure the following tools are installed and accessible in your `$PATH`:
 │   │   └── 05_statistical_tests.py
 │   ├── raw-data/       # Collected telemetry partitioned by scenario/strategy [ignored]
 │   │   ├── nominal/    # {hibernate, hibernate-dto, jdbc} / {k6, jfr}
-│   │   └── saturation/ # {hibernate, hibernate-dto, jdbc} / {k6, jfr}
+│   │   ├── saturation/ # {hibernate, hibernate-dto, jdbc} / {k6, jfr}
+│   │   └── diagnostics/# Interleaved 1,200 RPS runs / {k6, jfr, telemetry}
 │   ├── processed-data/ # Extracted metrics, consolidated datasets, and test results [ignored]
 │   │   ├── dataset_final.csv
+│   │   ├── diagnostics_dataset.csv
 │   │   ├── shapiro_wilk_results.csv
-│   │   └── wilcoxon_comparisons.csv
-│   └── figures/        # Rendered publication charts (300 DPI) [ignored]
+│   │   └── mann_whitney_comparisons.csv
+│   └── figures/        # Rendered publication charts (300 DPI, Portuguese labels) [ignored]
 │       ├── nominal/    # Individual run-by-run stability charts
 │       ├── saturation/ # Individual run-by-run stability charts
-│       └── comparisons/# Cross-scenario comparative charts and split boxplots
-├── up-lab.sh           # Starts PostgreSQL container, checks readiness, and boots backend
-├── down-lab.sh         # Shuts down JVM runtime and tears down database containers
-├── run-battery.sh      # Executes warm-up and 10 benchmark iterations (--nominal | --saturation)
-├── run-analysis.sh     # Resets derived data and executes the 5-stage Python analysis pipeline
-├── run-all.sh          # Master orchestrator managing branch checkouts, runs, cooldowns, and analysis
+│       └── comparisons/# Cross-scenario comparative charts, split boxplots, and diagnostics
+├── up-lab.sh           # Starts PostgreSQL 17-Alpine container, checks readiness, and boots backend
+├── down-lab.sh         # Shuts down JVM runtime and tears down database containers/volumes
+├── run-battery.sh      # Executes JIT warm-up and 10 benchmark iterations (--nominal | --saturation)
+├── run-all.sh          # Stage 1 master orchestrator (60 primary black-box runs + analysis)
+├── run-diagnostics.sh  # Stage 2 white-box orchestrator (30 interleaved saturation runs)
+├── run-analysis.sh     # Validates Python venv, resets derived data, and runs the 5-stage pipeline
+├── tmux-enter.sh       # Creates/attaches persistent tmux session with systemd-inhibit sleep lock
+├── tmux-exit.sh        # Terminates tmux session and releases the system sleep/idle inhibitor
 ├── requirements.txt    # Python dependencies (pandas, seaborn, matplotlib, scipy)
 ├── backend.log         # Cumulative JVM startup, health checks, and application logs [ignored]
 ├── database.log        # Cumulative PostgreSQL container logs [ignored]
 ├── load-tests.log      # Cumulative k6 execution and JFR profiling logs [ignored]
-├── data-analysis.log   # Cumulative dataset parsing and statistical logs [ignored]
+├── diagnostics.log     # Cumulative interleaved diagnostic battery logs [ignored]
+├── data-analysis.log   # Cumulative dataset parsing and statistical test logs [ignored]
 └── README.md
 ```
 
@@ -60,109 +68,72 @@ Ensure the following tools are installed and accessible in your `$PATH`:
 
 ## Environment Setup
 
-Initialize the Python virtual environment and install analysis dependencies (including `scipy` for non-parametric inference):
+`./run-analysis.sh` automatically checks and provisions the Python virtual environment via `data-analysis/scripts/create-venv.sh`. To initialize it manually beforehand:
 
 ```bash
-python3 -m venv data-analysis/venv
-source data-analysis/venv/bin/activate
-pip install -r requirements.txt
-deactivate
+./data-analysis/scripts/create-venv.sh
 ```
 
 ---
 
 ## Benchmark Workflow
 
-Each persistence strategy is isolated on its dedicated Git branch: `hibernate`, `hibernate-dto`, and `jdbc`.
+Each persistence strategy is isolated on its dedicated Git branch: `hibernate`, `hibernate-dto`, and `jdbc`. For reproducible results on Linux workstations, switch to a multi-user TTY (`sudo systemctl isolate multi-user.target`), set the CPU governor to `performance` (`powerprofilesctl set performance`), and run inside the managed `tmux` session (`./tmux-enter.sh`).
 
-### Headless Execution via TTY & `tmux` (Optional)
+### Stage 1: Primary Black-Box Benchmark (60 Runs)
 
-To minimize operating system jitter, background GUI compositing, and desktop daemon interruptions during the 60-run suite, the benchmark can be executed from a pure text console (TTY without an active Desktop Environment) inside a persistent `tmux` session:
+#### Option A: Fully Automated Execution (Recommended)
+
+Run the master orchestrator from any clean branch (e.g., `main`). It automatically manages Git checkouts, boots and tears down the lab environment, runs JIT warm-ups and dual-scenario batteries (10 nominal + 10 saturation runs per strategy), enforces a 3-minute inter-strategy thermal cooldown, and triggers the data analysis pipeline:
 
 ```bash
-# 1. Switch to a headless multi-user console (stops the graphical environment)
-sudo systemctl isolate multi-user.target
-
-# 2. Create a named tmux session to protect execution from SIGHUP disconnects
-tmux new -s tcc-lab
-
-# 3. Launch the master orchestrator
+./tmux-enter.sh
 ./run-all.sh
-
-# Optional: Detach from the session at any time without stopping the benchmark
-# Press: Ctrl+b, then d
-# Reattach later with: tmux attach -t tcc-lab
 ```
 
-*(Tip: Split panes in `tmux` using `Ctrl+b %` or `Ctrl+b "` to monitor `backend.log`, `database.log`, and `load-tests.log` in real time while the orchestrator runs. To return to the graphical interface afterward, run `sudo systemctl isolate graphical.target`.)*
+#### Option B: Manual Step-by-Step Execution
 
----
-
-### Option A: Fully Automated Execution (Recommended)
-
-Run the master orchestrator from any clean branch (e.g., `main`). It automatically manages Git checkouts, boots and tears down the test environment, runs warm-ups and dual-scenario batteries, enforces a 3-minute inter-strategy hardware thermal cooldown, and triggers the final data analysis:
+Alternatively, execute both workload scenarios (`--nominal` and `--saturation`) sequentially for each branch, allowing a 2–3 minute thermal cooldown between strategies:
 
 ```bash
-chmod +x run-all.sh
-./run-all.sh
+# 1. Hibernate (Managed Entities)
+git switch hibernate && ./up-lab.sh && ./run-battery.sh --nominal && ./run-battery.sh --saturation && ./down-lab.sh
+
+# 2. Hibernate DTO (Projections)
+git switch hibernate-dto && ./up-lab.sh && ./run-battery.sh --nominal && ./run-battery.sh --saturation && ./down-lab.sh
+
+# 3. Native JDBC
+git switch jdbc && ./up-lab.sh && ./run-battery.sh --nominal && ./run-battery.sh --saturation && ./down-lab.sh
 ```
 
 ---
 
-### Option B: Manual Step-by-Step Execution
+### Stage 2: Complementary White-Box Saturation Diagnostics (30 Interleaved Runs)
 
-Alternatively, execute both workload scenarios (`--nominal` and `--saturation`) sequentially for each branch:
+Run separately after Stage 1 (allowing 5–15 minutes of idle thermal settling) to isolate internal bottlenecks under 1,200 RPS saturation without introducing observer bias into the primary dataset. `run-diagnostics.sh` executes 10 balanced interleaved rounds across `hibernate`, `hibernate-dto`, and `jdbc`, sampling HikariCP pool usage/acquisition/queue depth at 1 Hz via Spring Actuator, PostgreSQL 17-Alpine `cgroup v2` CPU quota/throttling, shared buffer cache hit ratio, and isolated `/proc` CPU ticks for the JVM and `k6`:
 
-#### 1. Hibernate (Managed Entities)
 ```bash
-git switch hibernate
-./up-lab.sh
-./run-battery.sh --nominal
-./run-battery.sh --saturation
-./down-lab.sh
-```
-
-*(Allow 2–3 minutes for thermal cooldown before proceeding)*
-
-#### 2. Hibernate DTO (Projections)
-```bash
-git switch hibernate-dto
-./up-lab.sh
-./run-battery.sh --nominal
-./run-battery.sh --saturation
-./down-lab.sh
-```
-
-*(Allow 2–3 minutes for thermal cooldown)*
-
-#### 3. Native JDBC
-```bash
-git switch jdbc
-./up-lab.sh
-./run-battery.sh --nominal
-./run-battery.sh --saturation
-./down-lab.sh
+./tmux-enter.sh
+./run-diagnostics.sh
+./run-analysis.sh
+./tmux-exit.sh
 ```
 
 ---
 
 ## Data Analysis & Statistical Validation
 
-If executed manually via Option B, run the processing pipeline from any branch once all 60 benchmark iterations are completed:
+Whenever `./run-analysis.sh` is executed from any branch, it rebuilds `processed-data/` and `figures/` across 5 automated stages:
 
-```bash
-./run-analysis.sh
-```
-
-The automated pipeline executes the following 5 stages:
-
-1. **`01_parse_k6.py`:** Parses raw k6 execution CSVs, calculating sustained throughput (RPS) and latency percentiles (p50, p90, p95, p99).
-2. **`02_parse_jfr.py`:** Invokes the JDK `jfr` CLI to extract HotSpot telemetry: Stop-the-World GC pause times, committed heap peak usage, and average JVM/host CPU load.
-3. **`03_consolidate.py`:** Joins k6 and JFR metrics on the execution run key into a unified, tidy dataset (`data-analysis/processed-data/dataset_final.csv`).
+1. **`01_parse_k6.py`:** Parses raw `k6` execution CSVs across primary and diagnostic directories, extracting sustained throughput (RPS), dropped iterations, and latency percentiles ($p50$, $p90$, $p95$, $p99$).
+2. **`02_parse_jfr.py`:** Invokes the JDK `jfr` CLI to extract HotSpot telemetry: Stop-the-World GC count and pause times, committed heap peak usage, and average JVM/host CPU load.
+3. **`03_consolidate.py`:** Joins `k6`, `JFR`, and white-box telemetry JSONs into tidy datasets:
+   * `processed-data/dataset_final.csv` (60 primary runs)
+   * `processed-data/diagnostics_dataset.csv` (30 interleaved saturation diagnostic runs)
 4. **`04_generate_figures.py`:** Produces 300 DPI publication charts:
    * **Stability Plots (`figures/{nominal,saturation}/{strategy}/`):** Run-by-run stationarity across latency, throughput, GC pauses, and CPU load.
-   * **Global Comparative Charts (`figures/comparisons/`):** Grouped bar charts comparing throughput, p95 tail latency, accumulated GC pauses, and CPU load across scenarios.
-5. **`05_statistical_tests.py`:** Conducts formal inferential statistical analysis:
-   * **Normality Testing:** Evaluates empirical distributions using the **Shapiro-Wilk** test, exporting results to `processed-data/shapiro_wilk_results.csv`.
-   * **Hypothesis Testing:** Performs non-parametric pairwise comparisons via **Mann-Whitney U** (independent rank sums) and **Wilcoxon Signed-Rank** (paired iteration differences), exporting significance assessments to `processed-data/wilcoxon_comparisons.csv`.
+   * **Global Comparative Charts (`figures/comparisons/`):** Grouped bar charts comparing throughput, $p95$ tail latency, accumulated GC pauses, and CPU load across scenarios, plus `diagnostics_mechanisms.png` (HikariCP connection hold time vs. PostgreSQL CPU quota).
+5. **`05_statistical_tests.py`:** Conducts formal non-parametric inferential analysis:
+   * **Normality Testing:** Evaluates empirical distributions using the **Shapiro-Wilk** test (`processed-data/shapiro_wilk_results.csv`).
+   * **Hypothesis Testing & Effect Size:** Performs independent pairwise comparisons via the **Mann-Whitney U** test with **Holm-Bonferroni** family-wise error correction, **Cliff's delta ($\delta$)** effect size, and 95% bootstrap confidence intervals (`processed-data/mann_whitney_comparisons.csv`).
    * **Decoupled Tail Latency Boxplot:** Renders `figures/comparisons/distribution_latency_p95_split.png`, isolating Nominal (2.5–8.5 ms) and Saturation (665–750 ms) scales to expose variance, JIT warmup outliers, and architectural performance tiers without visual compression.
