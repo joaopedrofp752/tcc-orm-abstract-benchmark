@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = BASE_DIR / "raw-data"
 PROCESSED_DIR = BASE_DIR / "processed-data"
 
-SCENARIOS = ["nominal", "saturation"]
+SCENARIOS = ["nominal", "saturation", "diagnostics"]
 STRATEGIES = ["hibernate", "hibernate-dto", "jdbc"]
 
 
