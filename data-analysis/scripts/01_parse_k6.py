@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-01_parse_k6.py - Extract latency percentiles and throughput from raw k6 CSVs
-supporting both 'nominal' (300 RPS) and 'saturation' (1,200 RPS) workload profiles.
+01_parse_k6.py - Extract latency percentiles, sustained throughput, dropped iterations,
+and HTTP failure counts from raw k6 CSV logs across 'nominal' (300 RPS),
+'saturation' (1,200 RPS), and 'diagnostics' (1,200 RPS interleaved) profiles.
 
 Architecture & Telemetry Notes:
 - Reads high-volume CSV logs produced by k6 load test executions.
@@ -9,6 +10,8 @@ Architecture & Telemetry Notes:
   TCP socket acquisition, HTTP processing, database query, and response transfer.
 - Computes non-parametric percentiles (p50, p90, p95, p99) to accurately evaluate
   tail latencies under queuing contention, where arithmetic means mask degradation.
+- Tracks open-model arrival-rate drops (dropped_iterations) and HTTP error counts
+  (http_req_failed) to verify zero-error saturation behavior under VU pool limits.
 """
 
 from pathlib import Path
@@ -18,11 +21,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = BASE_DIR / "raw-data"
 PROCESSED_DIR = BASE_DIR / "processed-data"
 
-SCENARIOS = ["nominal", "saturation"]
+SCENARIOS = ["nominal", "saturation", "diagnostics"]
 STRATEGIES = ["hibernate", "hibernate-dto", "jdbc"]
 
 
-def process_k6_run(file_path: Path) -> dict:
+def process_k6_run(file_path: Path) -> dict | None:
     """
     Parse an individual k6 execution CSV log, extracting request timing samples
     and aggregating primary performance indicators.
@@ -50,6 +53,11 @@ def process_k6_run(file_path: Path) -> dict:
         print(f"  ! Warning: No http_req_duration samples in {file_path.name}")
         return None
 
+    # Aggregate open-model dropped iterations (when all maxVUs are saturated)
+    # and failed HTTP responses (non-2xx status codes or client timeouts).
+    dropped_iterations = int(df.loc[df["metric_name"] == "dropped_iterations", "metric_value"].sum())
+    http_req_failed = int(df.loc[df["metric_name"] == "http_req_failed", "metric_value"].sum())
+
     # Derive sustained throughput (RPS) based on the boundary timestamps of the run.
     # A 1.0-second clamp avoids division by zero in degraded or truncated runs.
     timestamps = df["timestamp"]
@@ -62,6 +70,8 @@ def process_k6_run(file_path: Path) -> dict:
     return {
         "run": run_id,
         "http_reqs_total": int(total_reqs),
+        "dropped_iterations": dropped_iterations,
+        "http_req_failed": http_req_failed,
         "throughput_rps": round(throughput_rps, 2),
         "latency_avg_ms": round(latencies.mean(), 2),
         "latency_min_ms": round(latencies.min(), 2),
