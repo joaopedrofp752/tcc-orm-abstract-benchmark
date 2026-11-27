@@ -63,3 +63,5 @@ data-analysis/output/
 *.jfr
 *.csv
 *.png
+
+.tmux-inhibit.pid
