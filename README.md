@@ -7,12 +7,23 @@ A reproducible benchmark harness evaluating tail latency, sustained throughput, 
 
 ---
 
+## Repository & Branch Architecture
+
+To preserve experimental isolation (*ceteris paribus*) and prevent classpath contamination across strategies, the repository separates shared orchestration from concrete persistence implementations:
+
+* **`main` (Release `v1.0` Base):** Sterile baseline containing the database setup, load-testing scripts, master orchestrators, Python statistical pipeline, and a persistence-agnostic Spring Boot skeleton (`BenchmarkController` + `BenchmarkService` contract).
+* **`hibernate`:** Isolated implementation using managed JPA entities (`BenchmarkPayload`) inside `@Transactional(readOnly = true)` mapped to `PayloadDTO` (`HibernateBenchmarkService`).
+* **`hibernate-dto`:** Isolated implementation using JPQL constructor projections (`SELECT new ...PayloadDTO(...)`) bypassing persistence context hydration (`HibernateDtoBenchmarkService`).
+* **`jdbc`:** Isolated implementation using native SQL queries via `JdbcTemplate` and `RowMapper` (`JdbcBenchmarkService`).
+
+---
+
 ## Prerequisites
 
 Ensure the following tools are installed and accessible in your `$PATH`:
 
 * **JDK 21+** (must include native `jfr` and `jcmd` CLI utilities)
-* **Docker & Docker Compose** (for PostgreSQL 17-Alpine)
+* **Docker & Docker Compose** (with `cgroups v2` enabled for PostgreSQL 17-Alpine resource confinement)
 * **k6** (HTTP load testing engine)
 * **Python 3.10+** (with `venv` support)
 * **tmux** (recommended for persistent headless execution; integrates with `systemd-inhibit` when available)
@@ -61,6 +72,7 @@ Ensure the following tools are installed and accessible in your `$PATH`:
 ├── load-tests.log      # Cumulative k6 execution and JFR profiling logs [ignored]
 ├── diagnostics.log     # Cumulative interleaved diagnostic battery logs [ignored]
 ├── data-analysis.log   # Cumulative dataset parsing and statistical test logs [ignored]
+├── LICENSE             # MIT License
 └── README.md
 ```
 
@@ -78,13 +90,13 @@ Ensure the following tools are installed and accessible in your `$PATH`:
 
 ## Benchmark Workflow
 
-Each persistence strategy is isolated on its dedicated Git branch: `hibernate`, `hibernate-dto`, and `jdbc`. For reproducible results on Linux workstations, switch to a multi-user TTY (`sudo systemctl isolate multi-user.target`), set the CPU governor to `performance` (`powerprofilesctl set performance`), and run inside the managed `tmux` session (`./tmux-enter.sh`).
+For reproducible results on Linux workstations, switch to a multi-user TTY (`sudo systemctl isolate multi-user.target`), set the CPU governor to `performance` (`powerprofilesctl set performance`), and run inside the managed `tmux` session (`./tmux-enter.sh`).
 
 ### Stage 1: Primary Black-Box Benchmark (60 Runs)
 
 #### Option A: Fully Automated Execution (Recommended)
 
-Run the master orchestrator from any clean branch (e.g., `main`). It automatically manages Git checkouts, boots and tears down the lab environment, runs JIT warm-ups and dual-scenario batteries (10 nominal + 10 saturation runs per strategy), enforces a 3-minute inter-strategy thermal cooldown, and triggers the data analysis pipeline:
+Run the master orchestrator from any clean branch (e.g., `main`). It automatically manages Git checkouts across `hibernate`, `hibernate-dto`, and `jdbc`, boots and tears down the lab environment, runs JIT warm-ups and dual-scenario batteries (10 nominal + 10 saturation runs per strategy), enforces a 3-minute inter-strategy thermal cooldown, and triggers the data analysis pipeline:
 
 ```bash
 ./tmux-enter.sh
@@ -137,3 +149,9 @@ Whenever `./run-analysis.sh` is executed from any branch, it rebuilds `processed
    * **Normality Testing:** Evaluates empirical distributions using the **Shapiro-Wilk** test (`processed-data/shapiro_wilk_results.csv`).
    * **Hypothesis Testing & Effect Size:** Performs independent pairwise comparisons via the **Mann-Whitney U** test with **Holm-Bonferroni** family-wise error correction, **Cliff's delta ($\delta$)** effect size, and 95% bootstrap confidence intervals (`processed-data/mann_whitney_comparisons.csv`).
    * **Decoupled Tail Latency Boxplot:** Renders `figures/comparisons/distribution_latency_p95_split.png`, isolating Nominal (2.5–8.5 ms) and Saturation (665–750 ms) scales to expose variance, JIT warmup outliers, and architectural performance tiers without visual compression.
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
